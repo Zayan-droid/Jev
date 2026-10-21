@@ -43,11 +43,15 @@ _WORDS = [
 def synthetic_request(tokenizer: Tokenizer, state_tokens: int, n_questions: int) -> DecisionRequest:
     """A request whose state is roughly ``state_tokens`` long with ``n_questions`` questions
     cycling through the three types."""
-    text, words = "", 0
-    while len(tokenizer.encode(text)) < state_tokens:
-        chunk = " ".join(_WORDS[(words + i) % len(_WORDS)] for i in range(32))
-        text = f"{text} {chunk}".strip()
-        words += 32
+    words = [_WORDS[i % len(_WORDS)] for i in range(4 * state_tokens)]
+    lo, hi = 1, len(words)  # smallest word count reaching the target length
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if len(tokenizer.encode(" ".join(words[:mid]))) >= state_tokens:
+            hi = mid
+        else:
+            lo = mid + 1
+    text = " ".join(words[:lo])
     questions: dict[str, Any] = {}
     for i in range(n_questions):
         kind = ("noul", "choice", "score")[i % 3]

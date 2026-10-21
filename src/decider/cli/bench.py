@@ -9,6 +9,12 @@ from pathlib import Path
 from decider.cli._common import configure_logging
 
 
+def _cell(value: object) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.1f}" if isinstance(value, float) else str(value)
+
+
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
     p = argparse.ArgumentParser(description=__doc__)
@@ -38,22 +44,20 @@ def main(argv: list[str] | None = None) -> None:
         args.questions,
         repeats=args.repeats,
     )
-    table = Table(title=f"{bundle.version} on {device}")
-    columns = [
-        "state_tokens",
-        "questions",
-        "full_p50_ms",
-        "full_p95_ms",
-        "state_encode_p50_ms",
-        "cached_p50_ms",
-        "peak_memory_mb",
-    ]
-    for c in columns:
-        table.add_column(c, justify="right")
+    table = Table(title=f"{bundle.version} on {device}, milliseconds")
+    columns = {
+        "state_tokens": "state tokens",
+        "questions": "questions",
+        "full_p50_ms": "full p50",
+        "full_p95_ms": "full p95",
+        "state_encode_p50_ms": "encode state",
+        "cached_p50_ms": "cached p50",
+        "peak_memory_mb": "peak MB",
+    }
+    for title in columns.values():
+        table.add_column(title, justify="right")
     for row in rows:
-        table.add_row(
-            *[f"{row[c]:.2f}" if isinstance(row[c], float) else str(row[c]) for c in columns]
-        )
+        table.add_row(*(_cell(row[key]) for key in columns))
     Console().print(table)
     if args.out:
         args.out.write_text(json.dumps(rows, indent=2))

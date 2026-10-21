@@ -107,6 +107,7 @@ class Predictor:
         device: str | torch.device = "cpu",
         max_batch_tokens: int = 16_384,
         calibrated: bool = True,
+        precision: str = "bf16",
     ) -> None:
         self.model = model.to(device).eval()
         self.tokenizer = tokenizer
@@ -115,10 +116,23 @@ class Predictor:
         self.device = torch.device(device)
         self.max_batch_tokens = max_batch_tokens
         self.calibrated = calibrated
+        self.precision = precision  # "bf16" (autocast on CUDA) or "fp32"
 
     def _autocast(self) -> torch.autocast:
-        enabled = self.device.type == "cuda"
+        enabled = self.device.type == "cuda" and self.precision == "bf16"
         return torch.autocast(self.device.type, dtype=torch.bfloat16, enabled=enabled)
+
+    def with_precision(self, precision: str) -> Predictor:
+        """A predictor sharing this one's model and settings at another precision."""
+        return Predictor(
+            self.model,
+            self.tokenizer,
+            self.limits,
+            self.device,
+            self.max_batch_tokens,
+            self.calibrated,
+            precision,
+        )
 
     @torch.inference_mode()
     def predict_examples(self, examples: Sequence[Example]) -> list[dict[str, Prediction]]:

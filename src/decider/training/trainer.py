@@ -262,6 +262,7 @@ class Trainer:
         averager = _Averager()
         meter = _Throughput()
         status = "FAILED"
+        training_done = False
         try:
             while step < tc.max_steps:
                 model.train()
@@ -350,13 +351,21 @@ class Trainer:
 
             if step % tc.checkpoint_every:
                 ckpt.save(snapshot(), step)
+            training_done = True
+            # Release optimizer state and gradients so evaluation (and its memory numbers)
+            # sees only what inference needs.
+            optimizer.state.clear()
+            model.zero_grad(set_to_none=True)
+            if self.device.type == "cuda":
+                torch.cuda.empty_cache()
             result = self._finish(model, ckpt, telemetry, manifest)
             status = "FINISHED"
             return result
         except KeyboardInterrupt:
             status = "KILLED"
-            log.warning("interrupted at step %d; saving a resumable checkpoint", step)
-            ckpt.save(snapshot(), step)
+            if not training_done:  # after training, last.pt is already complete
+                log.warning("interrupted at step %d; saving a resumable checkpoint", step)
+                ckpt.save(snapshot(), step)
             raise
         finally:
             telemetry.finish(status)

@@ -161,8 +161,12 @@ def evaluate(
         }
         if cfg.robustness:
             n = cfg.robustness_examples
-            entry["permutation"] = permutation_gap(predictor, examples, n, cfg.seed)
-            entry["independence"] = independence_gap(predictor, examples, n)
+            exact = predictor.with_precision("fp32")
+            entry["permutation"] = permutation_gap(exact, examples, n, cfg.seed)
+            entry["independence"] = independence_gap(exact, examples, n, cfg.seed)
+            if predictor.precision != "fp32" and predictor.device.type == "cuda":
+                entry["permutation_bf16"] = permutation_gap(predictor, examples, n, cfg.seed)
+                entry["independence_bf16"] = independence_gap(predictor, examples, n, cfg.seed)
         report["splits"][split_name] = entry
 
         for label, temps in (("uncalibrated", None), ("calibrated", temperatures)):
@@ -260,7 +264,13 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines += ["", "### By family", ""]
         lines += _table(cal["by_family"], cols, "family")
         lines += ["", "### Robustness", ""]
-        for key in ("permutation", "independence", "negation"):
+        for key in (
+            "permutation",
+            "independence",
+            "permutation_bf16",
+            "independence_bf16",
+            "negation",
+        ):
             if key in entry and entry[key].get("n"):
                 values = ", ".join(f"{k}={_fmt(v, 6)}" for k, v in entry[key].items())
                 lines.append(f"- {key}: {values}")

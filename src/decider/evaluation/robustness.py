@@ -1,15 +1,19 @@
 """Behavioural checks on a trained model with real data.
 
 The structural guarantees (permutation equivariance, question independence) are unit-tested on
-random weights; these functions re-measure them on the trained model and real inputs, where
-numerical issues (bf16, kernels, long rows) would show up. They also measure the behaviours
+random weights; these functions re-measure them on the trained model and real inputs. Run at
+fp32 they test the structure (gaps should be ~1e-6); run at the serving precision (bf16) they
+measure how much numerical noise reordering alone introduces. They also measure the behaviours
 that are *learned*, not guaranteed: negation consistency and resistance to prompt injection.
+
+Candidates are sampled at random from the whole split: dataset files are ordered by source, so
+taking the first N examples would test a single source.
 """
 
 from __future__ import annotations
 
 import random
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from typing import Any
 
@@ -23,6 +27,13 @@ from decider.evaluation.metrics import (
 )
 from decider.inference import Predictor
 from decider.packing import Example, TokenizedQuestion, TokenizedRequest
+
+
+def _sample(
+    examples: Sequence[Example], keep: Callable[[Example], bool], n: int, seed: int
+) -> list[Example]:
+    candidates = [ex for ex in examples if keep(ex)]
+    return random.Random(seed).sample(candidates, min(n, len(candidates)))
 
 
 def _choice_permuted(example: Example, rng: random.Random) -> Example | None:
@@ -44,7 +55,13 @@ def permutation_gap(
 ) -> dict[str, float]:
     """Max |p(option) - p'(option)| after shuffling choice options."""
     rng = random.Random(seed)
-    pairs = [(ex, p) for ex in examples[:max_examples] if (p := _choice_permuted(ex, rng))]
+    has_choice = _sample(
+        examples,
+        lambda ex: any(q.type == "choice" for q in ex.request.questions),
+        max_examples,
+        seed,
+    )
+    pairs = [(ex, p) for ex in has_choice if (p := _choice_permuted(ex, rng))]
     if not pairs:
         return {"n": 0}
     base = predictor.predict_examples([Example(ex.request) for ex, _ in pairs])
@@ -62,10 +79,10 @@ def permutation_gap(
 
 
 def independence_gap(
-    predictor: Predictor, examples: Sequence[Example], max_examples: int = 200
+    predictor: Predictor, examples: Sequence[Example], max_examples: int = 200, seed: int = 0
 ) -> dict[str, float]:
     """Max change in the remaining answers when one question is removed from a request."""
-    multi = [ex for ex in examples[:max_examples] if len(ex.request.questions) >= 2]
+    multi = _sample(examples, lambda ex: len(ex.request.questions) >= 2, max_examples, seed)
     if not multi:
         return {"n": 0}
     reduced = [Example(replace(ex.request, questions=ex.request.questions[1:])) for ex in multi]

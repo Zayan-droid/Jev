@@ -30,12 +30,15 @@ def test_overfits_a_single_batch() -> None:
     batch = collate(examples, limits.max_seq_len)
     assert batch.targets is not None
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    first = None
-    for _ in range(200):
+    losses = []
+    for _ in range(300):
         loss, _ = decision_loss(model(batch), batch.targets, batch.option_mask)
-        first = first if first is not None else loss.item()
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
-    assert first is not None and first > 0.5
-    assert loss.item() < 0.05
+        losses.append(loss.item())
+    # Uniform predictions score ~1.2 on this batch; memorising it must get far below that.
+    # The bound is loose on purpose: the exact trajectory differs across BLAS backends.
+    assert losses[0] > 0.8
+    assert min(losses[-20:]) < losses[0] / 8

@@ -1,0 +1,52 @@
+# Entry point for `decider-train`. Usually driven by an experiment: `experiment=toy`.
+defaults:
+  - model: tiny
+  - data: toy
+  - train: default
+  - gate@register.gate: default
+  - _self_
+  - experiment: null
+
+name: ${data.name}-run
+run_dir: runs/${name}/${now:%Y-%m-%d_%H-%M-%S}
+data_dir: ${data.output_root}/${data.name}
+
+packing:
+  max_seq_len: 1024
+  max_state_tokens: 512
+  max_question_tokens: 96
+  max_option_tokens: 48
+
+telemetry:
+  mlflow: true
+  tracking_uri: ${oc.env:MLFLOW_TRACKING_URI,sqlite:///mlflow/mlflow.db}
+  experiment: decider
+  artifact_root: mlflow/artifacts
+  system_metrics: true
+  system_metrics_interval_s: 10
+  # Live training gauges for Prometheus/Grafana (docker/docker-compose.yml). null disables.
+  prometheus_port: 9101
+  tags: {}
+
+evaluation:
+  splits: [test, heldout]
+  calibration_split: calib
+  max_examples: null
+  n_bins: 15
+  bootstrap: 1000
+  robustness: true
+  robustness_examples: 200
+  latency: true
+  latency_state_tokens: [128, 512]
+  latency_questions: [1, 8, 32]
+  seed: 0
+
+register:
+  enabled: false
+  model_name: decider
+
+hydra:
+  run:
+    dir: ${run_dir}
+  job:
+    chdir: false

@@ -1,0 +1,27 @@
+max_steps: 2000
+max_batch_tokens: 16384
+grad_accum: 1
+lr: 5.0e-4
+head_lr_multiplier: 1.0
+weight_decay: 0.01
+warmup_steps: 200
+min_lr_ratio: 0.1
+betas: [0.9, 0.98]
+grad_clip: 1.0
+brier_weight: 0.25
+rps_weight: 0.5
+precision: bf16
+mixture_alpha: 0.5
+source_weights: {}
+max_options: 24
+eval_every: 500
+eval_examples: 2000
+eval_batch_tokens: 32768
+checkpoint_every: 500
+keep_checkpoints: 2
+early_stopping_patience: null
+log_every: 10
+update_ratio_every: 100
+seed: 0
+device: auto
+compile: false

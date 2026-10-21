@@ -1,0 +1,26 @@
+# @package _global_
+# Model v0.1: ModernBERT-base fine-tuned on public data + programmatic tasks. Sized for a 6 GB
+# GPU (bf16, gradient checkpointing, 8k-token micro-batches).
+defaults:
+  - override /model: modernbert-base
+  - override /data: mix-v0
+
+name: modernbert-mix
+packing:
+  max_seq_len: 1024
+  max_state_tokens: 384
+train:
+  max_steps: 12000
+  max_batch_tokens: 8192
+  grad_accum: 2
+  lr: 5.0e-5
+  head_lr_multiplier: 20.0
+  warmup_steps: 500
+  eval_every: 1000
+  checkpoint_every: 1000
+  early_stopping_patience: 4
+  max_options: 24
+evaluation:
+  latency_state_tokens: [128, 384]
+register:
+  enabled: true

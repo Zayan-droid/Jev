@@ -1,0 +1,23 @@
+# ~5M parameters, byte-level tokenizer, trained from scratch. For the programmatic tasks and
+# for checking the mechanism end to end in minutes.
+tokenizer: byte
+pretrained: null
+head_hidden: null
+head_dropout: 0.1
+cross_option_layers: 2
+encoder:
+  d_model: 256
+  n_layers: 6
+  n_heads: 8
+  d_ff: 768
+  norm: rmsnorm
+  norm_eps: 1.0e-6
+  activation: silu
+  global_every: 1
+  local_window: 64
+  rope_theta: 10000.0
+  local_rope_theta: 10000.0
+  dropout: 0.0
+  attention_dropout: 0.0
+  max_levels: 10
+  gradient_checkpointing: false

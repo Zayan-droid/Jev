@@ -1,0 +1,8 @@
+# Release gate: every check must pass before a version gets the `challenger` alias.
+split: test
+max_ece: 0.05                       # per question type, after temperature scaling
+min_accuracy: 0.0                   # raise once baselines are established
+max_permutation_diff: 0.005         # exact in fp32; bf16 noise only
+max_independence_diff: 0.005
+max_injection_false_yes_increase: 0.10
+max_full_p95_ms: 250.0

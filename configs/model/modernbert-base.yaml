@@ -1,0 +1,13 @@
+# ModernBERT-base (149M) loaded into our encoder. Architecture fields are read from the
+# checkpoint; only training-time fields below are used.
+tokenizer: answerdotai/ModernBERT-base
+pretrained: answerdotai/ModernBERT-base
+head_hidden: null
+head_dropout: 0.1
+cross_option_layers: 4
+encoder:
+  n_layers: 22
+  dropout: 0.0
+  attention_dropout: 0.0
+  max_levels: 10
+  gradient_checkpointing: true

@@ -1,0 +1,14 @@
+# @package _global_
+# Phase 1 exit check: from-scratch tiny model on the programmatic tasks (~30 min on a 3050).
+defaults:
+  - override /model: tiny
+  - override /data: toy
+
+name: toy-tiny
+train:
+  max_steps: 6000
+  max_batch_tokens: 16384
+  lr: 1.0e-3
+  warmup_steps: 300
+  eval_every: 500
+  checkpoint_every: 1000

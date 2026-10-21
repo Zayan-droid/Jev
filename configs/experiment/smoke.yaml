@@ -1,0 +1,32 @@
+# @package _global_
+# A complete pipeline in about a minute on CPU: used by CI and `poe train-smoke`.
+defaults:
+  - override /model: tiny
+  - override /data: smoke
+
+name: smoke
+packing:
+  max_seq_len: 768
+  max_state_tokens: 384
+model:
+  cross_option_layers: 1
+  encoder: {d_model: 64, n_layers: 2, n_heads: 2, d_ff: 128}
+train:
+  max_steps: 30
+  max_batch_tokens: 4096
+  warmup_steps: 5
+  eval_every: 15
+  eval_examples: 60
+  checkpoint_every: 15
+  log_every: 5
+  update_ratio_every: 10
+telemetry:
+  tracking_uri: sqlite:///${run_dir}/mlflow.db
+  artifact_root: ${run_dir}/mlartifacts
+  system_metrics: false
+  prometheus_port: null
+evaluation:
+  bootstrap: 50
+  robustness_examples: 20
+  latency_state_tokens: [64]
+  latency_questions: [1, 4]

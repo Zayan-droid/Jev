@@ -1,0 +1,18 @@
+# @package _global_
+# Ablation: the same data and recipe without pretraining.
+defaults:
+  - override /model: small
+  - override /data: mix-v0
+
+name: small-mix
+packing:
+  max_seq_len: 1024
+  max_state_tokens: 384
+train:
+  max_steps: 12000
+  max_batch_tokens: 16384
+  lr: 6.0e-4
+  warmup_steps: 500
+  eval_every: 1000
+  checkpoint_every: 1000
+  early_stopping_patience: 4

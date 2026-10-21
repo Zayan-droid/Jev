@@ -1,0 +1,25 @@
+# ~40M parameters trained from scratch with the ModernBERT tokenizer and the same
+# global/sliding-window layout. The "no pretraining" ablation for the ModernBERT runs.
+tokenizer: answerdotai/ModernBERT-base
+pretrained: null
+head_hidden: null
+head_dropout: 0.1
+cross_option_layers: 2
+encoder:
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  d_ff: 1024
+  norm: layernorm
+  norm_eps: 1.0e-5
+  activation: gelu
+  embedding_norm: true
+  first_layer_attn_norm: false
+  global_every: 3
+  local_window: 64
+  rope_theta: 160000.0
+  local_rope_theta: 10000.0
+  dropout: 0.0
+  attention_dropout: 0.0
+  max_levels: 10
+  gradient_checkpointing: false

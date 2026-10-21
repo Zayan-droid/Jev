@@ -1,6 +1,7 @@
 # @package _global_
-# Model v0.1: ModernBERT-base fine-tuned on public data + programmatic tasks. Sized for a 6 GB
-# GPU (bf16, gradient checkpointing, 8k-token micro-batches).
+# Model v0.1: ModernBERT-base fine-tuned on public data + programmatic tasks.
+# Sized for a 6 GB laptop GPU: bf16 autocast, gradient checkpointing, 8k-token batches.
+# On an RTX 3050 (6 GB) this runs at ~5.5k tokens/s, about 4 hours for 9k steps (~2 epochs).
 defaults:
   - override /model: modernbert-base
   - override /data: mix-v0
@@ -10,9 +11,9 @@ packing:
   max_seq_len: 1024
   max_state_tokens: 384
 train:
-  max_steps: 12000
+  max_steps: 9000
   max_batch_tokens: 8192
-  grad_accum: 2
+  grad_accum: 1
   lr: 5.0e-5
   head_lr_multiplier: 20.0
   warmup_steps: 500

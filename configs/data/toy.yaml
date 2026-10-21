@@ -1,0 +1,24 @@
+# Programmatic tasks only: no downloads, exact labels. The Phase 1 sanity task.
+name: toy-v1
+output_root: data/processed
+seed: 0
+val_fraction: 0.0
+calib_fraction: 0.0
+sources: []
+local_sources:
+  # Hand-labelled evaluation set and reviewed production feedback (see `decider-label`).
+  - {path: data/gold/gold.jsonl, split: gold}
+  - {path: data/feedback/labeled.jsonl, split: train}
+synthetic:
+  families: [inventory, inventory_text, arithmetic, dates, lookup]
+  heldout_families: [dates]
+  heldout_templates: [inv.most_common_color, arith.difference, lookup.health]
+  questions_per_record: [1, 4]
+  negation_rate: 0.15
+  injection_rate: 0.1
+synthetic_sizes:
+  train: 60000
+  val: 2000
+  calib: 2000
+  test: 4000
+  heldout: 3000

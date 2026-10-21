@@ -1,0 +1,10 @@
+# Entry point for `decider-build-data`. Pick a dataset with `data=<name>`.
+defaults:
+  - data: toy
+  - _self_
+
+hydra:
+  run:
+    dir: outputs/build_data/${data.name}/${now:%Y-%m-%d_%H-%M-%S}
+  job:
+    chdir: false

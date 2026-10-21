@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.cache/
+
+# Data, runs and artifacts (tracked by DVC / MLflow, never by git)
+/data/raw/
+/data/processed/
+/data/feedback/
+/runs/
+/outputs/
+/multirun/
+/mlflow/
+/mlruns/
+/mlartifacts/
+/bundles/
+/logs/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

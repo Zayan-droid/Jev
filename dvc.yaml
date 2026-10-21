@@ -1,0 +1,48 @@
+# Reproducible pipeline: `dvc repro` rebuilds whatever is out of date, `dvc dag` shows it.
+# Data and model outputs are cached by DVC (configure a remote with `dvc remote add`).
+stages:
+  data_toy:
+    cmd: decider-build-data data=toy
+    deps:
+      - configs/data/toy.yaml
+      - src/decider/data
+      - src/decider/schema.py
+    outs:
+      - data/processed/toy-v1
+
+  data_mix:
+    cmd: decider-build-data data=mix-v0
+    deps:
+      - configs/data/mix-v0.yaml
+      - src/decider/data
+      - src/decider/schema.py
+    outs:
+      - data/processed/mix-v0
+
+  train_toy:
+    cmd: decider-train experiment=toy run_dir=runs/pipeline/toy-tiny
+    deps:
+      - data/processed/toy-v1
+      - configs/experiment/toy.yaml
+      - configs/model/tiny.yaml
+      - configs/train/default.yaml
+      - src/decider
+    outs:
+      - runs/pipeline/toy-tiny/bundle
+    metrics:
+      - runs/pipeline/toy-tiny/eval/report.json:
+          cache: false
+
+  train_mix:
+    cmd: decider-train experiment=modernbert-mix run_dir=runs/pipeline/modernbert-mix
+    deps:
+      - data/processed/mix-v0
+      - configs/experiment/modernbert-mix.yaml
+      - configs/model/modernbert-base.yaml
+      - configs/train/default.yaml
+      - src/decider
+    outs:
+      - runs/pipeline/modernbert-mix/bundle
+    metrics:
+      - runs/pipeline/modernbert-mix/eval/report.json:
+          cache: false

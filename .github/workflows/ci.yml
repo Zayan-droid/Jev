@@ -1,0 +1,84 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.10.9"
+  UV_SYNC: uv sync --frozen --extra cpu --extra train --extra serve
+
+jobs:
+  quality:
+    name: lint, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: ${{ env.UV_SYNC }}
+      - name: ruff
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: mypy
+        run: uv run mypy
+      - name: pytest
+        run: uv run pytest -m "not slow and not network" --cov=decider --cov-report=term-missing:skip-covered
+
+  pipeline:
+    name: smoke pipeline (build, train, evaluate, serve)
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: ${{ env.UV_SYNC }}
+      - name: build data
+        run: uv run decider-build-data data=smoke
+      - name: train
+        run: uv run decider-train experiment=smoke run_dir=runs/smoke/ci train.device=cpu
+      - name: evaluate bundle
+        run: uv run decider-eval --bundle runs/smoke/ci/bundle --data data/processed/smoke --device cpu
+      - name: serve and query
+        run: |
+          uv run decider-serve --bundle runs/smoke/ci/bundle --device cpu --port 8000 &
+          for i in $(seq 1 30); do curl -sf localhost:8000/readyz && break; sleep 1; done
+          curl -sf -X POST localhost:8000/v1/decide -H 'content-type: application/json' \
+            -d '{"state": {"items": [{"name": "lamp", "color": "red", "qty": 2}]},
+                 "questions": {"red": {"type": "noul", "instructions": "Is there a red item?"}}}'
+          curl -sf localhost:8000/metrics/ | grep decider_requests_total
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-report
+          path: |
+            runs/smoke/ci/eval
+            runs/smoke/ci/metrics.jsonl
+          if-no-files-found: ignore
+
+  docker:
+    name: serving image
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          tags: decider-serve:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

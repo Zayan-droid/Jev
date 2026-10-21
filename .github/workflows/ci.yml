@@ -82,3 +82,27 @@ jobs:
           tags: decider-serve:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  monitoring:
+    name: monitoring stack (Prometheus rules, Grafana provisioning)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: validate Prometheus config and alert rules
+        run: |
+          docker run --rm -v "$PWD/docker/prometheus:/etc/prometheus:ro" --entrypoint promtool \
+            prom/prometheus:v3.5.0 check config /etc/prometheus/prometheus.yml
+      - name: start Prometheus and Grafana
+        run: docker compose -f docker/docker-compose.yml up -d prometheus grafana
+      - name: dashboards are provisioned and rules are loaded
+        run: |
+          for i in $(seq 1 60); do curl -sf localhost:3000/api/health && break; sleep 2; done
+          dashboards=$(curl -sf -u admin:admin "localhost:3000/api/search?tag=decider" | jq length)
+          echo "dashboards: $dashboards"; test "$dashboards" -eq 2
+          for i in $(seq 1 30); do curl -sf localhost:9090/-/ready && break; sleep 2; done
+          groups=$(curl -sf localhost:9090/api/v1/rules | jq '.data.groups | length')
+          echo "rule groups: $groups"; test "$groups" -eq 2
+      - if: failure()
+        run: docker compose -f docker/docker-compose.yml logs
+      - if: always()
+        run: docker compose -f docker/docker-compose.yml down -v

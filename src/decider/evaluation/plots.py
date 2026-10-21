@@ -38,12 +38,12 @@ def reliability_figure(series: Mapping[str, Series], title: str = "", n_bins: in
         top.bar(centers, accuracy, width=width * 0.9, color="#4C72B0", label="accuracy")
         top.bar(
             centers,
-            [b.confidence - b.accuracy for b in bins],
-            bottom=accuracy,
+            [abs(b.confidence - b.accuracy) for b in bins],
+            bottom=[min(b.confidence, b.accuracy) for b in bins],
             width=width * 0.9,
             color="#DD8452",
             alpha=0.5,
-            label="gap",
+            label="|confidence - accuracy|",
         )
         top.plot([0, 1], [0, 1], "k--", linewidth=1)
         top.set_xlim(0, 1)

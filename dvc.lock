@@ -14,8 +14,8 @@ stages:
       nfiles: 7
     - path: src/decider/schema.py
       hash: md5
-      md5: 4ecb7041cf3b7a21121d754a8353014c
-      size: 6509
+      md5: a408b12e9faf3967f30088495036cf43
+      size: 6668
     outs:
     - path: data/processed/toy-v1
       hash: md5
@@ -36,8 +36,8 @@ stages:
       nfiles: 7
     - path: src/decider/schema.py
       hash: md5
-      md5: 4ecb7041cf3b7a21121d754a8353014c
-      size: 6509
+      md5: a408b12e9faf3967f30088495036cf43
+      size: 6668
     outs:
     - path: data/processed/mix-v0
       hash: md5

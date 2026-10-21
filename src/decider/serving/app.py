@@ -21,22 +21,12 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from prometheus_client import make_asgi_app
-from pydantic import BaseModel
 
-from decider.schema import Answer, DecisionRequest
+from decider.schema import DecisionRequest, DecisionResponse
 from decider.serving import monitoring as m
 from decider.serving.engine import DecisionEngine, EngineConfig
 
 log = logging.getLogger("decider.access")
-
-
-class DecideResponse(BaseModel):
-    answers: dict[str, Answer]
-    model_version: str
-    request_id: str
-    latency_ms: float
-    cache_hit: bool
-    review: list[str]
 
 
 def create_app(cfg: EngineConfig, engine: DecisionEngine | None = None) -> FastAPI:
@@ -100,8 +90,8 @@ def create_app(cfg: EngineConfig, engine: DecisionEngine | None = None) -> FastA
 
     # A plain `def` endpoint runs in FastAPI's thread pool, keeping the event loop free while
     # the model runs; the engine serialises access to the device.
-    @app.post("/v1/decide", response_model=DecideResponse)
-    def decide(body: DecisionRequest, request: Request) -> DecideResponse:
+    @app.post("/v1/decide", response_model=DecisionResponse)
+    def decide(body: DecisionRequest, request: Request) -> DecisionResponse:
         engine = get_engine()
         start = time.perf_counter()
         try:
@@ -117,7 +107,7 @@ def create_app(cfg: EngineConfig, engine: DecisionEngine | None = None) -> FastA
         m.REQUESTS.labels(status="ok").inc()
         request_id = request.state.request_id
         engine.record(request_id, body, result, latency_ms)
-        return DecideResponse(
+        return DecisionResponse(
             answers=result.answers,
             model_version=engine.version,
             request_id=request_id,

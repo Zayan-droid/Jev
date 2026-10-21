@@ -183,3 +183,8 @@ Answer = Annotated[NoulAnswer | ChoiceAnswer | ScoreAnswer, Field(discriminator=
 class DecisionResponse(_Strict):
     answers: dict[str, Answer]
     model_version: str
+    request_id: str
+    latency_ms: float
+    cache_hit: bool
+    # Questions whose confidence fell below the server's review threshold.
+    review: list[str]

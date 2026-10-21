@@ -150,3 +150,43 @@ def test_api_serves_the_bundle(trained: Path, tmp_path: Path) -> None:
 
     bad = client.post("/v1/decide", json={"state": "x", "questions": {}})
     assert bad.status_code == 422
+
+
+def test_python_client_against_a_live_server(trained: Path, tmp_path: Path) -> None:
+    import socket
+    import threading
+
+    import uvicorn
+
+    from decider.client import DeciderClient, DeciderError, choice, noul, score
+
+    cfg = EngineConfig(
+        bundle=str(trained / "bundle"), device="cpu", prediction_log=None, feedback_queue=None
+    )
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(create_app(cfg), port=port, log_config=None))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    client = DeciderClient(f"http://127.0.0.1:{port}")
+    try:
+        for _ in range(100):
+            if client.ready():
+                break
+            threading.Event().wait(0.1)
+        result = client.decide(
+            {"ticket": "parcel arrived broken"},
+            refund=noul("Does `ticket` ask for a refund?"),
+            team=choice("Which team?", billing="payments", returns="damaged items"),
+            urgency=score("How urgent?", ["low", "medium", "high"]),
+        )
+        assert result.answers["team"].type == "choice"
+        assert len(result.answers["urgency"].distribution) == 3
+        assert client.model()["version"] == result.model_version
+        with pytest.raises(DeciderError) as err:
+            client._request("POST", "/v1/decide", {"state": "x", "questions": {}})
+        assert err.value.status == 422
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)

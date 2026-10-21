@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from decider.data.dataset import TrainBatches
 from decider.evaluation.report import EvalConfig
 from decider.model import EncoderConfig, ModelConfig
 from decider.packing import PackingLimits
+from decider.serving.analysis import analyse, read_log, render
 from decider.serving.app import create_app
 from decider.serving.engine import DecisionEngine, EngineConfig
 from decider.training.telemetry import TelemetryConfig
@@ -150,6 +152,13 @@ def test_api_serves_the_bundle(trained: Path, tmp_path: Path) -> None:
 
     bad = client.post("/v1/decide", json={"state": "x", "questions": {}})
     assert bad.status_code == 422
+
+    reference = json.loads((trained / "bundle" / "reference.json").read_text())["histograms"]
+    report = analyse(read_log(tmp_path / "predictions.jsonl"), reference)
+    (day,) = report["days"].values()
+    assert day["requests"] == 2 and day["cache_hit_rate"] == 0.5
+    assert {"noul", "choice", "score"} <= set(day["types"])
+    assert render(report).startswith("| day |")
 
 
 def test_python_client_against_a_live_server(trained: Path, tmp_path: Path) -> None:

@@ -52,6 +52,7 @@ decider-bench = "decider.cli.bench:main"
 decider-register = "decider.cli.register:main"
 decider-serve = "decider.cli.serve:main"
 decider-label = "decider.cli.label:main"
+decider-monitor = "decider.cli.monitor:main"
 
 [dependency-groups]
 dev = [

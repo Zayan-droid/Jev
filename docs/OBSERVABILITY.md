@@ -123,6 +123,16 @@ index, per question type (`GET /v1/drift`, `decider_confidence_psi`). PSI < 0.1 
   `decider-build-data` folds the labels into the training data. `--split gold` writes to the
   hand-labelled evaluation set instead.
 
+### Offline report
+
+Prometheus shows the present; `decider-monitor` summarises the prediction log per day:
+volume, latency percentiles, cache hit rate, noul yes-rate, and per question type the mean
+confidence, low-confidence share and PSI against the bundle's reference.
+
+```bash
+uv run decider-monitor --log logs/predictions.jsonl --bundle runs/<name>/<ts>/bundle
+```
+
 ### Alerts (`docker/prometheus/alerts.yml`)
 
 | Alert | Condition | First things to check |

@@ -121,8 +121,8 @@ One encoder implementation (`decider.model.encoder`) covers both configurations:
 | positions | RoPE θ=10k | RoPE θ=160k global / 10k local |
 
 ModernBERT-base weights load into this module; `tests/test_pretrained_parity.py` checks the
-hidden states against the `transformers` reference implementation (max abs difference 0.0 on a
-230-token input that exercises the sliding window). Using our own module rather than the
+hidden states against the `transformers` reference implementation (max abs difference 0.0 on an
+input longer than the sliding window). Using our own module rather than the
 reference implementation is what makes the custom masks, tree positions, level embeddings and
 the state KV cache possible.
 

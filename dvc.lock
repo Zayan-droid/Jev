@@ -1,0 +1,46 @@
+schema: '2.0'
+stages:
+  data_toy:
+    cmd: decider-build-data data=toy
+    deps:
+    - path: configs/data/toy.yaml
+      hash: md5
+      md5: 3e011291cfdbd7fc2bb186e0cee03fb3
+      size: 729
+    - path: src/decider/data
+      hash: md5
+      md5: ef58da51b5be3de509b4157cb9aed751.dir
+      size: 50419
+      nfiles: 7
+    - path: src/decider/schema.py
+      hash: md5
+      md5: 4ecb7041cf3b7a21121d754a8353014c
+      size: 6509
+    outs:
+    - path: data/processed/toy-v1
+      hash: md5
+      md5: 30228b7b4784b2fe1d555256f8a2e9d4.dir
+      size: 3888884
+      nfiles: 7
+  data_mix:
+    cmd: decider-build-data data=mix-v0
+    deps:
+    - path: configs/data/mix-v0.yaml
+      hash: md5
+      md5: ed4e7cf38c1f462c9d553781c4f67974
+      size: 1090
+    - path: src/decider/data
+      hash: md5
+      md5: ef58da51b5be3de509b4157cb9aed751.dir
+      size: 50419
+      nfiles: 7
+    - path: src/decider/schema.py
+      hash: md5
+      md5: 4ecb7041cf3b7a21121d754a8353014c
+      size: 6509
+    outs:
+    - path: data/processed/mix-v0
+      hash: md5
+      md5: 5da1341769fb11e6a1009d3e679e5274.dir
+      size: 23790576
+      nfiles: 7

@@ -34,7 +34,7 @@ groups:
   - name: decider-training
     rules:
       - alert: DeciderTrainingStalled
-        expr: changes(decider_step[10m]) == 0 and up{job="decider-train"} == 1
+        expr: changes(decider_step[10m]) == 0 and on (job, instance) up{job="decider-train"} == 1
         for: 5m
         labels: {severity: warn}
         annotations:

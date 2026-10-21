@@ -197,7 +197,8 @@ def _fit_platt(results: Sequence[QuestionResult]) -> tuple[float, float]:
         return loss
 
     optimizer.step(closure)
-    return float(params[0]), float(params[1])
+    a, b = params.detach().tolist()
+    return float(a), float(b)
 
 
 def _apply(results: Sequence[QuestionResult], platt: tuple[float, float]) -> None:

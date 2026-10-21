@@ -342,9 +342,11 @@ class Trainer:
                             bad_evals,
                         )
                         break
+                    meter.reset()  # keep evaluation time out of the throughput numbers
 
                 if step % tc.checkpoint_every == 0:
                     ckpt.save(snapshot(), step)
+                    meter.reset()
 
             if step % tc.checkpoint_every:
                 ckpt.save(snapshot(), step)

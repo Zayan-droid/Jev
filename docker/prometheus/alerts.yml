@@ -1,0 +1,46 @@
+groups:
+  - name: decider-serving
+    rules:
+      - alert: DeciderHighErrorRate
+        expr: |
+          sum(rate(decider_requests_total{status="error"}[5m]))
+            / clamp_min(sum(rate(decider_requests_total[5m])), 1e-9) > 0.01
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: More than 1% of decision requests are failing.
+      - alert: DeciderLatencyP95High
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(decider_request_latency_seconds_bucket[5m]))) > 0.25
+        for: 10m
+        labels: {severity: warn}
+        annotations:
+          summary: p95 latency of /v1/decide is above the 250 ms budget.
+      - alert: DeciderConfidenceDrift
+        expr: max by (type) (decider_confidence_psi) > 0.25
+        for: 15m
+        labels: {severity: warn}
+        annotations:
+          summary: Confidence distribution for {{ $labels.type }} questions drifted from the training-time reference (PSI > 0.25).
+      - alert: DeciderLowConfidenceSurge
+        expr: |
+          sum by (type) (rate(decider_low_confidence_total[15m]))
+            / clamp_min(sum by (type) (rate(decider_confidence_count[15m])), 1e-9) > 0.3
+        for: 15m
+        labels: {severity: warn}
+        annotations:
+          summary: Over 30% of {{ $labels.type }} answers fall below the review threshold.
+
+  - name: decider-training
+    rules:
+      - alert: DeciderTrainingStalled
+        expr: changes(decider_step[10m]) == 0 and up{job="decider-train"} == 1
+        for: 5m
+        labels: {severity: warn}
+        annotations:
+          summary: The trainer is up but its step counter has not moved for 10 minutes.
+      - alert: DeciderLossSpikes
+        expr: increase(decider_health_loss_spikes[10m]) > 3
+        labels: {severity: info}
+        annotations:
+          summary: Several loss spikes in the last 10 minutes; check the learning rate and data.

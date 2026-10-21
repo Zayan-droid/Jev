@@ -59,7 +59,10 @@ def main(argv: list[str] | None = None) -> None:
             "registered %s v%s (gate %s)", args.name, version, "passed" if passed else "failed"
         )
     elif args.command == "promote":
-        registry.promote(args.name, args.version, args.alias, args.force, args.tracking_uri)
+        try:
+            registry.promote(args.name, args.version, args.alias, args.force, args.tracking_uri)
+        except PermissionError as exc:
+            raise SystemExit(f"{exc} (use --force to override)") from None
     else:
         import mlflow
         from mlflow import MlflowClient

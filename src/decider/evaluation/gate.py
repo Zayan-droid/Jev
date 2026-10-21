@@ -53,7 +53,7 @@ def check_gate(report: dict[str, Any], gate: dict[str, Any]) -> GateResult:
     result = GateResult()
     if "max_ece" in gate:
         for t, metrics in cal.get("by_type", {}).items():
-            result.checks.append(_upper(f"ece[{t}]", metrics.get("ece"), gate["max_ece"]))
+            result.checks.append(_upper(f"ece.{t}", metrics.get("ece"), gate["max_ece"]))
     if "min_accuracy" in gate:
         acc = cal.get("overall", {}).get("accuracy")
         result.checks.append(_lower("accuracy", acc, gate["min_accuracy"]))

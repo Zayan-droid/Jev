@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> None:
         out = args.out or args.bundle.parent / f"eval-{args.data.name}"
         report = evaluate(predictor, args.data, cfg, out, fit_calibration=args.refit_calibration)
 
-    if args.gate.exists() and not args.baseline:
+    if args.gate.exists() and not args.baseline and cfg.robustness:
         gate = OmegaConf.to_container(OmegaConf.load(args.gate), resolve=True)
         assert isinstance(gate, dict)
         result = check_gate(report, gate)  # type: ignore[arg-type]

@@ -128,6 +128,20 @@ def test_state_hidden_states_do_not_depend_on_questions(
     torch.testing.assert_close(hidden[0], hidden[1], atol=ATOL, rtol=0)
 
 
+def test_full_pass_yields_the_same_cache(model: DeciderModel, encoder: RequestEncoder) -> None:
+    ex = encode(encoder, sample_request())
+    batch = collate([ex], LIMITS.max_seq_len, pack=False)
+    with torch.no_grad():
+        full = model(batch)
+    logits, cache = model.forward_and_cache(batch, len(ex.request.state))
+    reference = model.encode_state(ex.request.state)
+    for (k, v), (k_ref, v_ref) in zip(cache.kv, reference.kv, strict=True):
+        torch.testing.assert_close(k, k_ref, atol=ATOL, rtol=0)
+        torch.testing.assert_close(v, v_ref, atol=ATOL, rtol=0)
+    for t in full:
+        torch.testing.assert_close(full[t], logits[t], atol=ATOL, rtol=0)
+
+
 def test_cached_state_matches_full_forward(model: DeciderModel, encoder: RequestEncoder) -> None:
     ex = encode(encoder, sample_request())
     batch = collate([ex], LIMITS.max_seq_len, pack=False)

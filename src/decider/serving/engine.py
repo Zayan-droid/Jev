@@ -135,9 +135,10 @@ class DecisionEngine:
             cache = self.cache.get(key)
             hit = cache is not None
             if cache is None:
-                cache = model.encode_state(tokenized.state)
+                logits, cache = model.forward_and_cache(batch, len(tokenized.state))
                 self.cache.put(key, cache)
-            logits = model.forward_cached(cache, batch)
+            else:
+                logits = model.forward_cached(cache, batch)
             probs = model.probabilities(logits)
             if self.device.type == "cuda":
                 torch.cuda.synchronize()

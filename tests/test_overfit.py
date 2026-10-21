@@ -20,20 +20,22 @@ def test_overfits_a_single_batch() -> None:
     )
     limits = PackingLimits(max_seq_len=768, max_state_tokens=384)
     encoder = RequestEncoder(tok, limits)
-    records = list(SyntheticGenerator(SyntheticConfig()).generate(8, "train", seed=0))
+    generated = SyntheticGenerator(SyntheticConfig()).generate(64, "train", seed=0)
+    # Hard labels only: tied (soft) targets put a floor under the reachable loss.
+    records = [r for r in generated if r.label_kind == "hard"][:6]
     examples = [
         Example(t, record_to_example_targets(r))
         for t, r in zip(encoder.encode_many(records), records, strict=True)
     ]
     batch = collate(examples, limits.max_seq_len)
     assert batch.targets is not None
-    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-3)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     first = None
-    for _ in range(150):
+    for _ in range(200):
         loss, _ = decision_loss(model(batch), batch.targets, batch.option_mask)
         first = first if first is not None else loss.item()
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-    # Soft (tied) targets bound the reachable minimum away from zero; compare to the start.
-    assert loss.item() < 0.1 * first
+    assert first is not None and first > 0.5
+    assert loss.item() < 0.05

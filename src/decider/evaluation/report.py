@@ -20,6 +20,7 @@ from decider.data.dataset import EncodedSplit
 from decider.evaluation import plots
 from decider.evaluation.calibration import fit_temperatures
 from decider.evaluation.collect import collect_results
+from decider.evaluation.compare import prediction_rows, write_predictions
 from decider.evaluation.latency import benchmark
 from decider.evaluation.metrics import (
     QuestionResult,
@@ -150,6 +151,11 @@ def evaluate(
             continue
         examples = sample_examples(split, cfg.max_examples, cfg.seed)
         results = collect_results(predictor, examples, split_name)
+        # Per-question outcomes, for paired comparisons between models (decider-compare).
+        write_predictions(
+            out_dir / f"predictions_{split_name}.jsonl.gz",
+            prediction_rows(results, temperatures),
+        )
         entry: dict[str, Any] = {
             "examples": len(examples),
             "questions": len(results),

@@ -66,22 +66,43 @@ jobs:
             runs/smoke/ci/eval
             runs/smoke/ci/metrics.jsonl
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smoke-bundle
+          path: runs/smoke/ci/bundle
 
   docker:
-    name: serving image
-    needs: quality
+    name: serving image (build and container smoke test)
+    needs: pipeline
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: smoke-bundle
+          path: bundle
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
           push: false
+          load: true
           tags: decider-serve:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: serve the bundle from the container
+        # A named volume on the log directory, as in docker-compose.yml: the container runs as
+        # a non-root user and must still be able to write its prediction log.
+        run: |
+          docker run -d --name api -p 8000:8000 -v "$PWD/bundle:/models/bundle:ro"             -v api-logs:/home/decider/logs decider-serve:ci
+          for i in $(seq 1 60); do curl -sf localhost:8000/readyz && break; sleep 2; done
+          curl -sf -X POST localhost:8000/v1/decide -H 'content-type: application/json'             -d '{"state": {"ticket": "parcel arrived broken"},
+                 "questions": {"refund": {"type": "noul", "instructions": "Is a refund requested?"}}}'
+          docker exec api test -s logs/predictions.jsonl
+          curl -sf localhost:8000/metrics/ | grep 'decider_log_write_errors_total{sink="predictions"} 0.0'
+      - if: failure()
+        run: docker logs api
 
   monitoring:
     name: monitoring stack (Prometheus rules, Grafana provisioning)

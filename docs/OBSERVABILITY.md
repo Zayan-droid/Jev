@@ -14,12 +14,22 @@ decider-train ──► metrics.jsonl (run dir)          decider-serve ──►
 
 ```bash
 uv run poe mlflow                                   # MLflow UI on http://127.0.0.1:5000
-docker compose -f docker/docker-compose.yml up -d   # Prometheus :9090, Grafana :3000 (admin/admin)
+docker compose -f docker/docker-compose.yml up -d   # Prometheus :9090, Grafana :3000
 ```
 
 Training writes straight to the SQLite store in `mlflow/`, so the MLflow UI can be started
 before, during or after a run. Prometheus scrapes the trainer on `:9101` and the API on
-`:8000` of the host; both dashboards are provisioned automatically.
+`:8000` of the host; both dashboards are provisioned automatically and readable without
+logging in (admin / admin to edit).
+
+The API can also run in the stack, from the CPU image, on port 8001:
+
+```bash
+export DECIDER_BUNDLE_DIR=$PWD/runs/<name>/<timestamp>/bundle   # PowerShell: $env:DECIDER_BUNDLE_DIR = ...
+docker compose -f docker/docker-compose.yml --profile api up -d --build
+```
+
+Its prediction log and review queue are kept on the `api-logs` volume.
 
 ## 1. During training
 
@@ -116,8 +126,12 @@ index, per question type (`GET /v1/drift`, `decider_confidence_psi`). PSI < 0.1 
 * `logs/predictions.jsonl`: request id, model version, a SHA-256 of the state, the redacted
   state (emails, card numbers, phone numbers and IPs replaced; `--no-state-logging` keeps only
   the hash), questions, answers, latency, cache hit.
-* `data/feedback/queue.jsonl`: requests with at least one answer below the review threshold
-  (`--low-confidence`, default 0.6).
+* `data/feedback/queue.jsonl` (`--feedback-queue`): requests with at least one answer whose
+  top-label probability, the calibrated chance of being right, is below `--low-confidence`
+  (default 0.6). This is deliberately not the response's `confidence` field, which is an
+  entropy-based score over the whole distribution.
+* Writing either file never fails a request: errors are logged, counted in
+  `decider_log_write_errors_total` and raise the `DeciderLogWritesFailing` alert.
 * `uv run decider-label` walks the queue in the terminal and writes canonical records to
   `data/feedback/labeled.jsonl`, which `mix-v0` already lists under `local_sources`: the next
   `decider-build-data` folds the labels into the training data. `--split gold` writes to the
@@ -133,6 +147,18 @@ confidence, low-confidence share and PSI against the bundle's reference.
 uv run decider-monitor --log logs/predictions.jsonl --bundle runs/<name>/<ts>/bundle
 ```
 
+### Dashboards
+
+Training dashboard during a run (here a short run of the tiny model on `toy-v1`):
+
+![Grafana training dashboard](assets/grafana_training.png)
+
+Serving dashboard while replaying test-split traffic and then held-out traffic: the
+confidence-drift panel crosses the 0.25 PSI threshold and the low-confidence share rises as
+soon as the inputs shift, without any labels.
+
+![Grafana serving dashboard](assets/grafana_serving.png)
+
 ### Alerts (`docker/prometheus/alerts.yml`)
 
 | Alert | Condition | First things to check |
@@ -141,5 +167,6 @@ uv run decider-monitor --log logs/predictions.jsonl --bundle runs/<name>/<ts>/bu
 | `DeciderLatencyP95High` | p95 > 250 ms for 10 min | state length histogram; cache hit ratio; device |
 | `DeciderConfidenceDrift` | PSI > 0.25 for 15 min | state length and question mix; sample `predictions.jsonl` |
 | `DeciderLowConfidenceSurge` | > 30 % of answers below threshold | new question types or domains; label the queue |
+| `DeciderLogWritesFailing` | any failed write to the prediction log or review queue | disk space; volume permissions |
 | `DeciderTrainingStalled` | trainer up, step unchanged for 10 min | data loader, GPU, deadlock |
 | `DeciderLossSpikes` | > 3 spikes in 10 min | learning rate; a bad data source |

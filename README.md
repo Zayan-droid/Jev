@@ -172,7 +172,12 @@ curl -s localhost:8000/v1/decide -H 'content-type: application/json' \
   -d '{"state": "My card still has not arrived", "questions": {"lost": {"type": "noul", "instructions": "Is the customer reporting a lost card?"}}}'
 ```
 
-or build the CPU image: `docker build -f docker/Dockerfile -t decider-serve .`
+or run it in Docker (CPU image) next to Prometheus and Grafana:
+
+```bash
+export DECIDER_BUNDLE_DIR=$PWD/runs/modernbert-mix/<timestamp>/bundle
+docker compose -f docker/docker-compose.yml --profile api up -d --build   # API on :8001
+```
 
 ## MLOps and observability
 
@@ -203,7 +208,13 @@ uv run poe mlflow                                   # http://127.0.0.1:5000
 docker compose -f docker/docker-compose.yml up -d   # Grafana http://localhost:3000, Prometheus :9090
 ```
 
-Details and runbook: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
+The serving dashboard while replaying test traffic and then held-out traffic: confidence drift
+(PSI against the training-time reference) and the low-confidence share rise as soon as the
+inputs shift, before any labels exist.
+
+<p align="center"><img src="docs/assets/grafana_serving.png" width="900" alt="Grafana serving dashboard"></p>
+
+Details, the training dashboard and the runbook: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 ## Repository layout
 

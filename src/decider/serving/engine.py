@@ -182,12 +182,21 @@ class DecisionEngine:
             "latency_ms": round(latency_ms, 3),
             "cache_hit": result.cache_hit,
         }
+        targets = []
+        if self.cfg.prediction_log:
+            targets.append(("predictions", Path(self.cfg.prediction_log), entry))
+        if self.cfg.feedback_queue and result.review:
+            queued = {**entry, "review": result.review, "state": redact(request.state)}
+            targets.append(("feedback", Path(self.cfg.feedback_queue), queued))
+        # A failed log write must never fail the request it describes: it is reported and
+        # counted (decider_log_write_errors_total) instead.
         with self._log_lock:
-            if self.cfg.prediction_log:
-                _append(Path(self.cfg.prediction_log), entry)
-            if self.cfg.feedback_queue and result.review:
-                queued = {**entry, "review": result.review, "state": redact(request.state)}
-                _append(Path(self.cfg.feedback_queue), queued)
+            for sink, path, payload in targets:
+                try:
+                    _append(path, payload)
+                except OSError:
+                    m.LOG_WRITE_ERRORS.labels(sink=sink).inc()
+                    log.exception("could not write the %s log at %s", sink, path)
 
 
 def _append(path: Path, entry: dict[str, Any]) -> None:

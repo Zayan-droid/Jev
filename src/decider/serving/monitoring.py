@@ -25,13 +25,13 @@ REQUESTS = Counter("decider_requests_total", "Decision requests", ["status"])
 LATENCY = Histogram(
     "decider_request_latency_seconds",
     "End-to-end latency of /v1/decide",
-    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5),
+    buckets=(0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.075, 0.1, 0.15, 0.25, 0.5, 1.0, 2.5),
 )
 MODEL_LATENCY = Histogram(
     "decider_model_latency_seconds",
     "Model forward time, by state cache outcome",
     ["cache"],
-    buckets=(0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+    buckets=(0.005, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.075, 0.1, 0.25, 0.5, 1.0),
 )
 QUESTIONS = Histogram(
     "decider_questions_per_request", "Questions per request", buckets=(1, 2, 4, 8, 16, 32)
@@ -53,6 +53,27 @@ CACHE_EVENTS = Counter("decider_state_cache_total", "State cache lookups", ["res
 CACHE_BYTES = Gauge("decider_state_cache_bytes", "Bytes held by the state cache")
 PSI = Gauge("decider_confidence_psi", "PSI of live vs reference confidence", ["type"])
 MODEL_INFO = Gauge("decider_model_info", "Loaded model", ["version"])
+LOG_WRITE_ERRORS = Counter(
+    "decider_log_write_errors_total",
+    "Failed writes to the prediction log or review queue",
+    ["sink"],
+)
+
+# Create every bounded label value up front, so series exist at zero before the first event
+# (otherwise an error-rate query has no data until the first error, and alerts cannot fire on
+# rates computed from a series that appeared mid-window).
+for _status in ("ok", "rejected", "error"):
+    REQUESTS.labels(status=_status)
+for _result in ("hit", "miss"):
+    CACHE_EVENTS.labels(result=_result)
+    MODEL_LATENCY.labels(cache=_result)
+for _answer in ("yes", "no"):
+    NOUL_YES.labels(answer=_answer)
+for _sink in ("predictions", "feedback"):
+    LOG_WRITE_ERRORS.labels(sink=_sink)
+for _type in TYPES:
+    CONFIDENCE.labels(type=_type)
+    LOW_CONFIDENCE.labels(type=_type)
 
 
 def psi(expected: np.ndarray, actual: np.ndarray, eps: float = 1e-4) -> float:

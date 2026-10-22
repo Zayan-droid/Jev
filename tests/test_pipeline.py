@@ -161,6 +161,20 @@ def test_api_serves_the_bundle(trained: Path, tmp_path: Path) -> None:
     assert render(report).startswith("| day |")
 
 
+def test_log_write_failures_do_not_fail_requests(trained: Path, tmp_path: Path) -> None:
+    cfg = EngineConfig(
+        bundle=str(trained / "bundle"),
+        device="cpu",
+        prediction_log=str(tmp_path),  # a directory: every write fails
+        feedback_queue=None,
+    )
+    client = TestClient(create_app(cfg, DecisionEngine(cfg)))
+    body = {"state": "x", "questions": {"q": {"type": "noul", "instructions": "Is it x?"}}}
+    assert client.post("/v1/decide", json=body).status_code == 200
+    metrics = client.get("/metrics/").text
+    assert 'decider_log_write_errors_total{sink="predictions"} 1.0' in metrics
+
+
 def test_python_client_against_a_live_server(trained: Path, tmp_path: Path) -> None:
     import socket
     import threading

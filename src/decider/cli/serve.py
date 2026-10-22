@@ -30,9 +30,18 @@ def main(argv: list[str] | None = None) -> None:
         "--low-confidence",
         type=float,
         default=0.6,
-        help="answers below this confidence are queued for review",
+        help=(
+            "queue a request for review when an answer's top-label probability (the calibrated "
+            "chance it is right) is below this value"
+        ),
     )
     p.add_argument("--log-dir", type=Path, default=Path("logs"))
+    p.add_argument(
+        "--feedback-queue",
+        type=Path,
+        default=Path("data/feedback/queue.jsonl"),
+        help="where low-confidence requests are queued for decider-label",
+    )
     p.add_argument(
         "--no-state-logging",
         action="store_true",
@@ -59,7 +68,7 @@ def main(argv: list[str] | None = None) -> None:
         cache_max_bytes=args.cache_mb * 2**20,
         low_confidence_threshold=args.low_confidence,
         prediction_log=str(args.log_dir / "predictions.jsonl"),
-        feedback_queue="data/feedback/queue.jsonl",
+        feedback_queue=str(args.feedback_queue),
         log_states=not args.no_state_logging,
     )
     uvicorn.run(create_app(cfg), host=args.host, port=args.port, log_config=None)

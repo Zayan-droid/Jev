@@ -482,11 +482,13 @@
         "defaults": {
           "custom": {
             "lineWidth": 2,
-            "fillOpacity": 8,
-            "showPoints": "never",
+            "fillOpacity": 0,
+            "showPoints": "always",
             "stacking": {
               "mode": "none"
-            }
+            },
+            "pointSize": 6,
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -549,11 +551,13 @@
         "defaults": {
           "custom": {
             "lineWidth": 2,
-            "fillOpacity": 8,
-            "showPoints": "never",
+            "fillOpacity": 0,
+            "showPoints": "always",
             "stacking": {
               "mode": "none"
-            }
+            },
+            "pointSize": 6,
+            "spanNulls": true
           },
           "unit": "percentunit"
         },
@@ -616,11 +620,13 @@
         "defaults": {
           "custom": {
             "lineWidth": 2,
-            "fillOpacity": 8,
-            "showPoints": "never",
+            "fillOpacity": 0,
+            "showPoints": "always",
             "stacking": {
               "mode": "none"
-            }
+            },
+            "pointSize": 6,
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -748,8 +754,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{__name__=~\"decider_health_update_ratio_.*\",run=~\"$run\"}",
-          "legendFormat": "{{__name__}}",
+          "expr": "label_replace({__name__=~\"decider_health_update_ratio_.*\",run=~\"$run\"}, \"tensor\", \"$1\", \"__name__\", \"decider_health_update_ratio_(.*)\")",
+          "legendFormat": "{{run}} {{tensor}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -769,7 +775,8 @@
               "type": "log",
               "log": 10
             }
-          }
+          },
+          "unit": "sci"
         },
         "overrides": []
       },

@@ -73,8 +73,8 @@
           ]
         },
         "colorMode": "background",
-        "graphMode": "area",
-        "textMode": "auto"
+        "graphMode": "none",
+        "textMode": "name"
       }
     },
     {
@@ -145,7 +145,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum (rate(decider_requests_total{status=\"error\"}[5m])) / clamp_min(sum (rate(decider_requests_total[5m])), 1e-9)",
+          "expr": "(sum (rate(decider_requests_total{status=\"error\"}[5m])) or vector(0)) / sum (rate(decider_requests_total[5m]))",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -257,7 +257,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum (rate(decider_state_cache_total{result=\"hit\"}[5m])) / clamp_min(sum (rate(decider_state_cache_total[5m])), 1e-9)",
+          "expr": "sum (rate(decider_state_cache_total{result=\"hit\"}[5m])) / sum (rate(decider_state_cache_total[5m]))",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -322,7 +322,7 @@
             "fillOpacity": 8,
             "showPoints": "never",
             "stacking": {
-              "mode": "normal"
+              "mode": "none"
             }
           },
           "unit": "reqps"
@@ -482,7 +482,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum (rate(decider_questions_per_request_sum[5m])) / clamp_min(sum (rate(decider_questions_per_request_count[5m])), 1e-9)",
+          "expr": "sum (rate(decider_questions_per_request_sum[5m])) / sum (rate(decider_questions_per_request_count[5m]))",
           "legendFormat": "questions / request",
           "datasource": {
             "type": "prometheus",
@@ -491,7 +491,7 @@
         },
         {
           "refId": "B",
-          "expr": "sum (rate(decider_state_tokens_sum[5m])) / clamp_min(sum (rate(decider_state_tokens_count[5m])), 1e-9)",
+          "expr": "sum (rate(decider_state_tokens_sum[5m])) / sum (rate(decider_state_tokens_count[5m]))",
           "legendFormat": "state tokens / request",
           "datasource": {
             "type": "prometheus",
@@ -510,7 +510,20 @@
             }
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "questions / request"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -601,7 +614,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (type) (rate(decider_confidence_sum[5m])) / clamp_min(sum by (type) (rate(decider_confidence_count[5m])), 1e-9)",
+          "expr": "sum by (type) (rate(decider_confidence_sum[5m])) / sum by (type) (rate(decider_confidence_count[5m]))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",
@@ -650,7 +663,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (type) (rate(decider_low_confidence_total[5m])) / clamp_min(sum by (type) (rate(decider_confidence_count[5m])), 1e-9)",
+          "expr": "sum by (type) (rate(decider_low_confidence_total[5m])) / sum by (type) (rate(decider_confidence_count[5m]))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",

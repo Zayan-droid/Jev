@@ -36,7 +36,8 @@ record's questions or do not sum to one.
 |---|---|---|
 | `smoke` | 660 programmatic records | seconds; CI |
 | `toy-v1` | 75k programmatic records | ~15 s |
-| `mix-v0` | 180k records: 6 public datasets + programmatic tasks | ~1.5 min after downloads |
+| `mix-v0` | 180k records: 6 public datasets + programmatic tasks (template set v1) | ~1.5 min after downloads |
+| `mix-v1` | `mix-v0` with template set v2: more counting, range and comparison questions | ~1.5 min |
 
 `uv run decider-build-data data=<version>` writes `data/processed/<version>/` with one
 gzipped JSONL file per split and a `manifest.json` (per-file SHA-256, a combined data hash,
@@ -44,7 +45,7 @@ counts by source/family/type, licenses, the build config, the code version, and 
 records deduplication and leakage removal dropped). Builds are deterministic: rebuilding a
 version gives byte-identical files. `dvc repro` runs the same builds as pipeline stages.
 
-## Sources in `mix-v0`
+## Sources in `mix-v0` and `mix-v1`
 
 | Source | Hub id | Family | Questions | Split use | License |
 |---|---|---|---|---|---|
@@ -73,6 +74,12 @@ Each record draws a random world, renders it as JSON (or prose for `inventory_te
 * **lookup**: nested config values, feature flags, indirection ("the service named in
   `config.target`"), counts over a sub-object;
 * **dates**: ordering against `today`, intervals, earliest event (held out entirely).
+
+Template set v2 (`mix-v1`) adds, without changing any v1 template: counting entries above a
+quantity, total-quantity ranges and item-in-location checks (inventory), value ranges, counts
+above a threshold and pairwise comparison (arithmetic), and enabled-flag counts, retry ranges
+and region lookup (lookup). Count and range levels are written in one of several styles
+("2", "two", "exactly two flags"; "6 to 10 units", "at least 6 but less than 11 units").
 
 Two perturbations are mixed in: **negation pairs** (15 % of records add `Is it false that …`
 for one noul question, with the complementary target, in the same request) and **prompt

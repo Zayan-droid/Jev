@@ -62,6 +62,24 @@ def build_layer_masks(
     return masks
 
 
+def readout_features(
+    hidden: torch.Tensor, index: dict[str, torch.Tensor], option_mask: dict[str, torch.Tensor]
+) -> dict[str, torch.Tensor]:
+    """The encoder state each question is read from: the ``[Q_NOUL]`` token for noul, the mean
+    over its option / level tokens for choice and score. ``hidden`` is ``(B*L, D)``."""
+    features: dict[str, torch.Tensor] = {}
+    d = hidden.shape[-1]
+    for t in TYPES:
+        idx = index[t]
+        if t == "noul":
+            features[t] = hidden[idx].float()
+            continue
+        h = hidden[idx.reshape(-1)].float().view(*idx.shape, d)
+        mask = option_mask[t].unsqueeze(-1).float()
+        features[t] = (h * mask).sum(1) / mask.sum(1).clamp(min=1.0)
+    return features
+
+
 class DeciderModel(nn.Module):
     log_temperature: torch.Tensor
 
@@ -92,6 +110,16 @@ class DeciderModel(nn.Module):
         masks = self.layer_masks(batch)
         hidden, _ = self.encoder(batch.input_ids, batch.position_ids, batch.level_ids, masks)
         return self.heads(hidden.flatten(0, 1), batch.index, batch.option_mask)
+
+    def forward_with_features(
+        self, batch: Batch
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+        """Logits plus one feature vector per question (see :func:`readout_features`)."""
+        masks = self.layer_masks(batch)
+        hidden, _ = self.encoder(batch.input_ids, batch.position_ids, batch.level_ids, masks)
+        flat = hidden.flatten(0, 1)
+        logits = self.heads(flat, batch.index, batch.option_mask)
+        return logits, readout_features(flat, batch.index, batch.option_mask)
 
     def probabilities(
         self, logits: dict[str, torch.Tensor], calibrated: bool = True

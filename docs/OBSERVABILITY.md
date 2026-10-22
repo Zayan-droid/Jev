@@ -93,6 +93,23 @@ uv run decider-eval --bundle runs/<name>/<ts>/bundle --data data/processed/mix-v
 uv run decider-eval --baseline nli --data data/processed/mix-v0
 ```
 
+Every evaluation also writes one row per question (`predictions_<split>.jsonl.gz`). Before
+promoting a new version, compare it with the current one on the questions both were evaluated
+on; the intervals come from a paired bootstrap over records, so a difference marked `*` is
+unlikely to be noise:
+
+```bash
+uv run decider-compare runs/<old>/eval runs/<new>/eval --split heldout --by family
+```
+
+Before deploying, measure the server under concurrent load on the target hardware, with and
+without dynamic batching:
+
+```bash
+uv run decider-serve --bundle <bundle> --max-batch-size 16 &
+uv run decider-loadtest --data data/processed/mix-v1 --concurrency 1 4 16
+```
+
 ## 3. In production
 
 ### Metrics (`GET /metrics/`)

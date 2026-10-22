@@ -159,7 +159,7 @@ One JSON object per line (pydantic-validated, `decider.schema.Record`): `state`,
 `label_source`, `gen_version`, `meta`. Stored as gzipped JSONL: option sets differ per record,
 so a columnar format would need a JSON string column anyway.
 
-### 5.2 Sources (dataset `mix-v0`)
+### 5.2 Sources (datasets `mix-v0`, `mix-v1`)
 
 | Source | Family | Types | Role |
 |---|---|---|---|
@@ -177,6 +177,13 @@ Programmatic families compute exact labels from a random world and target known 
 counting, comparisons, field lookup and indirection, negation (`p(q)` and `p(¬q)` in one
 request), and prompt injection inside the state (labels unaffected, so following the injection
 is an error). Specific question templates are also held out.
+
+Templates are versioned as *template sets*. v1 (used by `mix-v0`) had only two kinds of
+`score` question, always worded the same way, and the v0.1 model failed on held-out counting
+and range questions. v2 (`mix-v1`) adds counting, range and comparison questions to every
+training family and varies how levels are written, so a model has to read the level
+descriptions rather than learn their positions. A set never changes once a dataset depends on
+it: v1 is pinned by a fingerprint test and still rebuilds `mix-v0` byte for byte.
 
 ### 5.3 Splits and hygiene
 
@@ -206,7 +213,12 @@ is an error). Specific question templates are also held out.
 | Speed | p50/p95 for full and cached passes across state sizes and question counts; peak memory |
 
 Every training run ends by fitting temperatures and running this harness; the report
-(`report.json`, `report.md`, figures) is logged to MLflow and stored next to the bundle.
+(`report.json`, `report.md`, figures) is logged to MLflow and stored next to the bundle,
+together with one row per question.
+
+Model versions are compared on the questions both were evaluated on (`decider-compare`):
+paired differences per type, family or source, with a 95 % bootstrap interval that resamples
+whole records, because questions about the same state are correlated.
 
 ## 7. MLOps
 
@@ -221,10 +233,10 @@ Every training run ends by fitting temperatures and running this harness; the re
 | Checkpointing | atomic writes; model, optimizer, scheduler, data-stream and RNG state; resume is bit-exact (tested) |
 | Registry | MLflow model registry; versions carry gate results as tags; `challenger` on gate pass, `champion` by explicit promotion |
 | Release gate | per-type ECE, accuracy floor, permutation/independence gaps, injection effect, p95 latency |
-| Serving | FastAPI, typed request/response, state KV cache, CPU Docker image with health checks |
+| Serving | FastAPI, typed request/response, size limits, state KV cache or dynamic micro-batching (packed rows), CPU Docker image with health checks |
 | Monitoring | Prometheus metrics with bounded labels; confidence drift (PSI vs. training reference); low-confidence rate; alert rules; Grafana serving dashboard |
 | Feedback loop | low-confidence answers queued (PII-redacted) → `decider-label` → `local_sources` of the next data version |
-| CI | ruff, mypy, pytest (incl. invariance and resume tests), a full smoke pipeline (build → train → eval → serve), Docker build |
+| CI | ruff, mypy, pytest (incl. invariance, parity and resume tests), a full smoke pipeline (build → train → eval → serve), the serving container with a named log volume, Prometheus/Grafana provisioning |
 
 ## 8. Roadmap
 
@@ -234,10 +246,10 @@ Every training run ends by fitting temperatures and running this harness; the re
 | 1. Core | masks, tree positions, heads, losses, cache; invariance tests; toy task | done |
 | 2. Data v0 + harness | converters, held-out families, evaluation harness, baselines | done; gold set pending (hand labelling) |
 | 3. Model v0.1 | ModernBERT backbone, temperature scaling | done |
-| 4. Synthetic engine | teacher-generated states/questions, k-sample soft labels | next |
+| 4. Synthetic engine | broader programmatic templates (template set v2); teacher-generated states/questions with k-sample soft labels | templates done; teacher next |
 | 5. Calibration & robustness | consistency losses on unlabelled pairs, per-family calibration analysis | planned |
 | 6. Scale & bake-off | larger encoder vs decoder + LoRA; 8k states; two-stage retrieval for >255 options | planned |
-| 7. Production | dynamic batching, ONNX/TensorRT export, shadow deployment | partly done (serving, monitoring, registry) |
+| 7. Production | dynamic batching, ONNX/TensorRT export, shadow deployment | serving, monitoring, registry and dynamic batching done; export and shadow deployment planned |
 
 ## 9. Changes from v0.1
 

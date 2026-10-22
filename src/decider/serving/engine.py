@@ -129,8 +129,12 @@ class DecisionEngine:
 
     def decide(self, request: DecisionRequest) -> DecisionResult:
         tokenized = self.encoder.encode(request)
-        batch = collate([Example(tokenized)], self.bundle.limits.max_seq_len, pack=False)
-        batch = batch.to(self.device)
+        batch = collate(
+            [Example(tokenized)],
+            self.bundle.limits.max_seq_len,
+            pack=False,
+            pad_id=self.bundle.tokenizer.pad_id,
+        ).to(self.device)
         key = LRUStateCache.key(tokenized.state)
         model = self.bundle.model
         with self._lock, torch.inference_mode(), self._autocast():

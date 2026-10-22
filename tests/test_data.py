@@ -266,3 +266,32 @@ def test_v2_targets_are_correct() -> None:
         assert target.index(1.0) == expected
     question, target = templates["inv.total_band"](world, rng)
     assert target.index(1.0) == 2  # 12 lamp units -> [11, 21)
+
+
+def test_encoded_split_roundtrips_examples_exactly(tmp_path: Path) -> None:
+    from decider.data.dataset import encode_records
+
+    records = list(
+        SyntheticGenerator(SyntheticConfig(template_set="v2")).generate(300, "train", seed=2)
+    )
+    limits = PackingLimits(max_seq_len=1024, max_state_tokens=512)
+    encoder = RequestEncoder(ByteTokenizer(), limits)
+    examples = encode_records(records, encoder)
+    split = EncodedSplit(examples, "train")
+    assert len(split) == len(examples)
+    for i in (0, 17, 299):
+        assert split[i] == examples[i]
+    assert split.lengths.tolist() == [ex.request.length for ex in examples]
+
+    write_records(tmp_path / "train.jsonl.gz", records)
+    cache = tmp_path / "cache"
+    import os
+
+    os.environ["DECIDER_CACHE_DIR"] = str(cache)
+    try:
+        first = EncodedSplit.load(tmp_path, "train", encoder)
+        second = EncodedSplit.load(tmp_path, "train", encoder)  # from the pickle cache
+    finally:
+        del os.environ["DECIDER_CACHE_DIR"]
+    assert list(cache.rglob("*.pkl"))
+    assert second.examples == first.examples == examples

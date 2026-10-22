@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import logging
 import os
 import pickle
@@ -15,8 +16,17 @@ from typing import Any
 import numpy as np
 
 from decider.data.io import iter_records, sha256_file, split_path
-from decider.packing import Batch, Example, PackingLimits, RequestEncoder, augment, collate
-from decider.schema import Record, target_vector
+from decider.packing import (
+    Batch,
+    Example,
+    PackingLimits,
+    RequestEncoder,
+    TokenizedQuestion,
+    TokenizedRequest,
+    augment,
+    collate,
+)
+from decider.schema import QuestionType, Record, target_vector
 
 log = logging.getLogger(__name__)
 
@@ -56,20 +66,80 @@ def encode_records(
     return examples
 
 
+@dataclass(frozen=True, slots=True)
+class _Packed:
+    """One example in compact form: every token id in one int32 array plus the layout.
+
+    Python lists of ints cost ~28 bytes per token; mix-v0's training split took ~3 GB that way
+    and ~10x less like this. Examples are rebuilt on access, which costs microseconds.
+    """
+
+    tokens: np.ndarray  # state, then each question's header followed by its options
+    state_len: int
+    # (name, type, header length, option lengths, option names) per question
+    questions: tuple[tuple[str, QuestionType, int, tuple[int, ...], tuple[str, ...]], ...]
+    targets: dict[str, list[float]] | None
+    meta: dict[str, Any]
+
+
+def _pack(example: Example) -> _Packed:
+    request = example.request
+    parts: list[Sequence[int]] = [request.state]
+    layout = []
+    for q in request.questions:
+        parts.append(q.header)
+        parts.extend(q.options)
+        option_lengths = tuple(len(o) for o in q.options)
+        layout.append((q.name, q.type, len(q.header), option_lengths, tuple(q.option_names)))
+    tokens = np.fromiter(itertools.chain.from_iterable(parts), dtype=np.int32)
+    return _Packed(tokens, len(request.state), tuple(layout), example.targets, example.meta)
+
+
+def _unpack(packed: _Packed) -> Example:
+    flat = packed.tokens.tolist()
+    pos = packed.state_len
+    questions = []
+    for name, qtype, header_len, option_lengths, option_names in packed.questions:
+        header = flat[pos : pos + header_len]
+        pos += header_len
+        options = []
+        for n in option_lengths:
+            options.append(flat[pos : pos + n])
+            pos += n
+        questions.append(TokenizedQuestion(name, qtype, header, options, list(option_names)))
+    request = TokenizedRequest(flat[: packed.state_len], questions)
+    return Example(request, packed.targets, packed.meta)
+
+
 class EncodedSplit:
-    """One split of a built dataset, tokenized once and cached on disk."""
+    """One split of a built dataset, tokenized once, stored compactly and cached on disk."""
+
+    CACHE_FORMAT = "packed-v1"
 
     def __init__(self, examples: list[Example], name: str) -> None:
-        self.examples = examples
+        self._init([_pack(ex) for ex in examples], name)
+
+    def _init(self, packed: list[_Packed], name: str) -> None:
+        self._packed = packed
         self.name = name
-        self.lengths = np.array([ex.request.length for ex in examples], dtype=np.int64)
-        self.sources = [ex.meta.get("source", "unknown") for ex in examples]
+        self.lengths = np.array([len(p.tokens) for p in packed], dtype=np.int64)
+        self.sources = [p.meta.get("source", "unknown") for p in packed]
+
+    @classmethod
+    def _from_packed(cls, packed: list[_Packed], name: str) -> EncodedSplit:
+        split = cls.__new__(cls)
+        split._init(packed, name)
+        return split
 
     def __len__(self) -> int:
-        return len(self.examples)
+        return len(self._packed)
 
     def __getitem__(self, i: int) -> Example:
-        return self.examples[i]
+        return _unpack(self._packed[i])
+
+    @property
+    def examples(self) -> list[Example]:
+        return [_unpack(p) for p in self._packed]
 
     @classmethod
     def load(
@@ -84,28 +154,28 @@ class EncodedSplit:
         if not path.exists():
             return cls([], split)
         tok = encoder.tokenizer
-        key = (sha256_file(path), tok.kind, tok.vocab_size, encoder.limits, limit)
+        key = (sha256_file(path), tok.kind, tok.vocab_size, encoder.limits, limit, cls.CACHE_FORMAT)
         fingerprint = hashlib.sha256(repr(key).encode()).hexdigest()[:16]
         # Outside the dataset directory, so DVC-tracked outputs are never modified.
         cache_root = Path(os.environ.get("DECIDER_CACHE_DIR", ".cache"))
         cache = cache_root / "tokenized" / data_dir.name / f"{split}-{fingerprint}.pkl"
         if use_cache and cache.exists():
             with cache.open("rb") as f:
-                examples = pickle.load(f)
-            log.info("%s: %d examples (cached)", split, len(examples))
-            return cls(examples, split)
+                packed = pickle.load(f)
+            log.info("%s: %d examples (cached)", split, len(packed))
+            return cls._from_packed(packed, split)
         records = []
         for record in iter_records(path):
             records.append(record)
             if limit is not None and len(records) >= limit:
                 break
-        examples = encode_records(records, encoder)
+        result = cls(encode_records(records, encoder), split)
         if use_cache:
             cache.parent.mkdir(parents=True, exist_ok=True)
             with cache.open("wb") as f:
-                pickle.dump(examples, f, protocol=pickle.HIGHEST_PROTOCOL)
-        log.info("%s: %d examples", split, len(examples))
-        return cls(examples, split)
+                pickle.dump(result._packed, f, protocol=pickle.HIGHEST_PROTOCOL)
+        log.info("%s: %d examples", split, len(result))
+        return result
 
 
 class MixtureSampler:

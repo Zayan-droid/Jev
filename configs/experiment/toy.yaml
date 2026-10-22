@@ -1,10 +1,16 @@
 # @package _global_
-# Phase 1 exit check: from-scratch tiny model on the programmatic tasks (~30 min on a 3050).
+# Phase 1 check: the tiny model (5M encoder parameters) trained from scratch on the programmatic
+# tasks. Measured on an RTX 3050 (6 GB), 6k steps in ~30 min: test accuracy 91.0 %, ECE 0.005
+# after temperature scaling; zero-shot accuracy on held-out templates stays low (30 %).
+# The ModernBERT tokenizer matters: with the byte tokenizer of `model: tiny` the same model was
+# at ~58 % validation accuracy after 3k steps, against 83 % with BPE.
 defaults:
   - override /model: tiny
   - override /data: toy
 
 name: toy-tiny
+model:
+  tokenizer: answerdotai/ModernBERT-base
 train:
   max_steps: 6000
   max_batch_tokens: 16384

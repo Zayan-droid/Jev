@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --extra cpu --extra serve
 
 FROM python:3.12-slim
-RUN useradd --create-home --uid 1000 decider
+RUN useradd --create-home --uid 1000 decider     && mkdir -p /home/decider/logs /home/decider/data/feedback     && chown -R decider:decider /home/decider/logs /home/decider/data
 COPY --from=builder --chown=decider:decider /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \

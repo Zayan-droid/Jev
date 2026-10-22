@@ -2,7 +2,8 @@
 #   docker compose -f docker/docker-compose.yml up -d            # monitoring only
 #   docker compose -f docker/docker-compose.yml --profile api up -d  # + containerised API
 # Prometheus scrapes the trainer (:9101) and the API (:8000) on the host, and the `api`
-# service when that profile is enabled. Grafana: http://localhost:3000 (admin / admin).
+# service when that profile is enabled. Grafana: http://localhost:3000 (read-only without
+# login; admin / admin to edit).
 
 name: decider
 
@@ -25,6 +26,9 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # Local stack: dashboards are readable without logging in; editing needs admin.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/decider-training.json
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -40,6 +44,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     image: decider-serve:latest
+    # The review queue lives on the logs volume so it survives container restarts.
+    command: ["--feedback-queue", "logs/review-queue.jsonl"]
     volumes:
       - ${DECIDER_BUNDLE_DIR:-../runs/latest/bundle}:/models/bundle:ro
       - api-logs:/home/decider/logs

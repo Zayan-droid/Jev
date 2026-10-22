@@ -249,7 +249,7 @@ whole records, because questions about the same state are correlated.
 | 4. Synthetic engine | broader programmatic templates (template set v2); teacher-generated states/questions with k-sample soft labels | templates done; teacher next |
 | 5. Calibration & robustness | consistency losses on unlabelled pairs, per-family calibration analysis | planned |
 | 6. Scale & bake-off | larger encoder vs decoder + LoRA; 8k states; two-stage retrieval for >255 options | planned |
-| 7. Production | dynamic batching, ONNX/TensorRT export, shadow deployment | serving, monitoring, registry and dynamic batching done; export and shadow deployment planned |
+| 7. Production | dynamic batching, ONNX/TensorRT export, shadow deployment | serving, monitoring, registry, dynamic batching and ONNX export (parity-tested) done; TensorRT and shadow deployment planned |
 
 ## 9. Changes from v0.1
 

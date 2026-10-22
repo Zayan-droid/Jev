@@ -37,6 +37,12 @@ train = [
     "prometheus-client>=0.21",
     "psutil>=6.0",
 ]
+# ONNX export and ONNX Runtime inference.
+export = [
+    "onnx>=1.17",
+    "onnxruntime>=1.20",
+    "onnxscript>=0.2",
+]
 # The HTTP inference server.
 serve = [
     "fastapi>=0.115",
@@ -54,6 +60,7 @@ decider-serve = "decider.cli.serve:main"
 decider-label = "decider.cli.label:main"
 decider-monitor = "decider.cli.monitor:main"
 decider-compare = "decider.cli.compare:main"
+decider-export = "decider.cli.export:main"
 
 [dependency-groups]
 dev = [

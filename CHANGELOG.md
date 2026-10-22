@@ -14,6 +14,10 @@ All notable changes to this project. The format follows
   requests share one packed forward pass; batched answers equal single-request answers.
 - `decider-label --sample-from` builds the hand-labelled gold set from a stratified sample, with
   labels and model answers hidden.
+- ONNX export (`decider-export`, `export` extra): the masks and tree positions are computed inside
+  the graph, all shapes are dynamic, and logits match PyTorch to ~1e-7 (tested on packed and
+  empty batches).
+- Paired model comparison (`decider-compare`) with a record-level bootstrap.
 - Request size limits (100k-character states, 2k-character instructions, options and levels).
 - Offline tests for ModernBERT loading (a tiny checkpoint saved by `transformers`) and for the
   Hugging Face tokenizer path; CI smoke-tests the serving container with a named log volume.

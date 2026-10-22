@@ -176,6 +176,9 @@ curl -s localhost:8000/v1/decide -H 'content-type: application/json' \
 `--max-wait-ms` and are packed into one forward pass (the single-request path keeps the
 state cache instead).
 
+`decider-export --bundle <bundle>` writes an ONNX graph next to the weights and checks it
+against PyTorch (install with `--extra export`).
+
 or run it in Docker (CPU image) next to Prometheus and Grafana:
 
 ```bash

@@ -11,7 +11,7 @@ concurrency:
 
 env:
   UV_VERSION: "0.10.9"
-  UV_SYNC: uv sync --frozen --extra cpu --extra train --extra serve
+  UV_SYNC: uv sync --frozen --extra cpu --extra train --extra serve --extra export
 
 jobs:
   quality:

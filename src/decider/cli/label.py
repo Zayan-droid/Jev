@@ -1,20 +1,30 @@
-"""``decider-label``: label queued low-confidence predictions in the terminal.
+"""``decider-label``: label requests in the terminal.
 
-Reads the serving feedback queue (or any file in the same format), shows each state with the
-question and the model's answer, and writes labelled records in the canonical schema. Point a
-dataset's ``local_sources`` at the output to fold the labels into the next data version, or
-write to a ``gold`` split to grow the hand-labelled evaluation set.
+Two sources of work:
+
+* the serving review queue (default): low-confidence production requests, shown with the
+  model's answer; labels go to ``data/feedback/labeled.jsonl`` and into the next training set;
+* ``--sample-from <dataset dir>``: a family-stratified sample of an existing split, shown
+  without any label or model answer so nothing anchors the judgement; with ``--split gold``
+  this builds the hand-labelled evaluation set ``data/gold/gold.jsonl``.
+
+Both outputs are canonical records listed under ``local_sources`` in the dataset configs.
+Labelling can stop and resume at any time; finished requests are skipped.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import random
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from decider.cli._common import configure_logging
 from decider.schema import Record
+
+DEFAULT_OUT = {"train": Path("data/feedback/labeled.jsonl"), "gold": Path("data/gold/gold.jsonl")}
 
 
 def _ask_target(console: Any, question: dict[str, Any]) -> Any | None:
@@ -40,13 +50,56 @@ def _ask_target(console: Any, question: dict[str, Any]) -> Any | None:
     return [float(i == k) for i in range(len(names))]
 
 
+def queue_entries(path: Path) -> list[dict[str, Any]]:
+    entries = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            entry = json.loads(line)
+            entries.append({**entry, "source": "feedback", "family": "feedback"})
+    return entries
+
+
+def sample_entries(data_dir: Path, split: str, n: int, seed: int) -> list[dict[str, Any]]:
+    """Up to ``n`` records, round-robin across families so every family is represented."""
+    from decider.data.io import iter_records, split_path
+
+    by_family: dict[str, list[Record]] = defaultdict(list)
+    for record in iter_records(split_path(data_dir, split)):
+        by_family[record.family].append(record)
+    rng = random.Random(seed)
+    for records in by_family.values():
+        rng.shuffle(records)
+    picked: list[Record] = []
+    while len(picked) < n and any(by_family.values()):
+        for family in sorted(by_family):
+            if by_family[family] and len(picked) < n:
+                picked.append(by_family[family].pop())
+    return [
+        {
+            "request_id": r.id,
+            "model_version": None,
+            "source": "gold",
+            "family": r.family,
+            "state": r.state,
+            "questions": {k: q.model_dump() for k, q in r.questions.items()},
+            "review": list(r.questions),
+        }
+        for r in picked
+    ]
+
+
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument("--queue", type=Path, default=Path("data/feedback/queue.jsonl"))
-    p.add_argument("--out", type=Path, default=Path("data/feedback/labeled.jsonl"))
+    p.add_argument("--sample-from", type=Path, help="dataset directory to sample records from")
+    p.add_argument("--sample-split", default="test")
+    p.add_argument("-n", type=int, default=50, help="records to sample")
+    p.add_argument("--seed", type=int, default=0)
     p.add_argument("--split", default="train", choices=["train", "gold"])
+    p.add_argument("--out", type=Path, help="default: by --split, see the description")
     args = p.parse_args(argv)
+    out_path: Path = args.out or DEFAULT_OUT[args.split]
 
     from rich.console import Console
     from rich.panel import Panel
@@ -54,51 +107,52 @@ def main(argv: list[str] | None = None) -> None:
 
     console = Console()
     done: set[str] = set()
-    if args.out.exists():
-        for line in args.out.read_text(encoding="utf-8").splitlines():
+    if out_path.exists():
+        for line in out_path.read_text(encoding="utf-8").splitlines():
             done.add(json.loads(line)["meta"].get("request_id", ""))
-    entries = [
-        json.loads(line)
-        for line in args.queue.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    if args.sample_from:
+        entries = sample_entries(args.sample_from, args.sample_split, args.n, args.seed)
+    else:
+        entries = queue_entries(args.queue)
     todo = [e for e in entries if e["request_id"] not in done]
-    console.print(f"{len(todo)} queued requests ({len(done)} already labelled)")
-    args.out.parent.mkdir(parents=True, exist_ok=True)
+    console.print(f"{len(todo)} requests to label ({len(done)} already in {out_path})")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     labelled = 0
-    with args.out.open("a", encoding="utf-8") as out:
+    with out_path.open("a", encoding="utf-8") as out:
         try:
             for entry in todo:
-                console.print(Panel(Pretty(entry["state"]), title=entry["request_id"][:12]))
+                console.print(Panel(Pretty(entry["state"]), title=entry["request_id"][:24]))
                 targets: dict[str, Any] = {}
                 for name in entry["review"]:
                     question = entry["questions"][name]
                     console.print(
                         f"[bold]{name}[/] ({question['type']}): {question['instructions']}"
                     )
-                    console.print(f"  model: {entry['answers'][name]}")
+                    if entry.get("answers"):
+                        console.print(f"  model: {entry['answers'][name]}")
                     target = _ask_target(console, question)
                     if target is not None:
                         targets[name] = target
                 if not targets:
                     continue
                 record = Record(
-                    id=f"feedback-{entry['request_id']}",
-                    source="feedback",
-                    family="feedback",
+                    id=f"{entry['source']}-{entry['request_id']}",
+                    source=entry["source"],
+                    family=entry["family"],
                     split=args.split,
                     state=entry["state"],
                     questions={k: entry["questions"][k] for k in targets},
                     targets=targets,
-                    label_source="human:review",
+                    label_source="human:review" if entry["source"] == "feedback" else "human:gold",
                     meta={"request_id": entry["request_id"], "model": entry["model_version"]},
                 )
                 out.write(record.model_dump_json() + "\n")
+                out.flush()
                 labelled += 1
         except KeyboardInterrupt:
             console.print("\nstopped")
-    console.print(f"labelled {labelled} requests -> {args.out}")
+    console.print(f"labelled {labelled} requests -> {out_path}")
 
 
 if __name__ == "__main__":

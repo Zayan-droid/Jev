@@ -98,6 +98,14 @@ yes"; labels are unchanged, so following it is an error).
 ## Gold set
 
 `data/gold/gold.jsonl` (not included) is the hand-labelled evaluation set: 300-500 records
-across all families, never trained on. `mix-v0` lists it as a local source for the `gold`
-split; `decider-eval` reports it whenever it exists. `decider-label --split gold` can be used
-to create it.
+across all families, never trained on. Build it with
+
+```bash
+uv run decider-label --sample-from data/processed/mix-v1 --sample-split test -n 400 --split gold
+```
+
+which samples records round-robin across families and shows each one without its dataset
+label or any model answer, so nothing anchors the judgement. Labelling can stop and resume.
+Disagreements with the dataset labels are worth reading: they measure label noise in the public
+sources. `mix-v0` and `mix-v1` list the file as a local source for the `gold` split, so the next
+`decider-build-data` picks it up and `decider-eval` reports it.

@@ -40,7 +40,35 @@ def resolve_checkpoint(name_or_path: str) -> Path:
     return Path(snapshot_download(name_or_path, allow_patterns=["*.json", "*.safetensors"]))
 
 
+def _attention_layout(hf_config: dict[str, Any]) -> tuple[int, float, float]:
+    """``(global_every, global_rope_theta, local_rope_theta)`` from either config format.
+
+    Original ModernBERT checkpoints store ``global_attn_every_n_layers`` and two rope thetas;
+    ``transformers`` 5 writes ``layer_types`` and ``rope_parameters`` instead.
+    """
+    if hf_config.get("layer_types"):
+        types = hf_config["layer_types"]
+        later_globals = [i for i, t in enumerate(types) if t == "full_attention" and i > 0]
+        every = later_globals[0] if later_globals else len(types)
+        expected = [
+            "full_attention" if i % every == 0 else "sliding_attention" for i in range(len(types))
+        ]
+        if types != expected:
+            raise ValueError(f"unsupported ModernBERT layer layout: {types}")
+    else:
+        every = hf_config.get("global_attn_every_n_layers", 3)
+    rope = hf_config.get("rope_parameters") or {}
+    global_theta = rope.get("full_attention", {}).get("rope_theta")
+    local_theta = rope.get("sliding_attention", {}).get("rope_theta")
+    return (
+        every,
+        float(global_theta or hf_config.get("global_rope_theta", 160_000.0)),
+        float(local_theta or hf_config.get("local_rope_theta", 10_000.0)),
+    )
+
+
 def modernbert_encoder_config(hf_config: dict[str, Any], **overrides: Any) -> EncoderConfig:
+    global_every, rope_theta, local_rope_theta = _attention_layout(hf_config)
     cfg = {
         "vocab_size": hf_config["vocab_size"],
         "d_model": hf_config["hidden_size"],
@@ -55,10 +83,10 @@ def modernbert_encoder_config(hf_config: dict[str, Any], **overrides: Any) -> En
         "mlp_bias": hf_config.get("mlp_bias", False),
         "embedding_norm": True,
         "first_layer_attn_norm": False,
-        "global_every": hf_config.get("global_attn_every_n_layers", 3),
+        "global_every": global_every,
         "local_window": hf_config.get("local_attention", 128) // 2,
-        "rope_theta": hf_config.get("global_rope_theta", 160_000.0),
-        "local_rope_theta": hf_config.get("local_rope_theta", 10_000.0),
+        "rope_theta": rope_theta,
+        "local_rope_theta": local_rope_theta,
     }
     cfg.update(overrides)
     return EncoderConfig(**cfg)

@@ -21,8 +21,9 @@ All notable changes to this project. The format follows
 ### Changed
 - The toy experiment uses the ModernBERT tokenizer: 91.0 % test accuracy in 30 minutes, where the
   byte tokenizer was at ~58 % validation accuracy halfway through.
-- Tokenized splits are stored as one int32 array per example and tokenized in streaming chunks,
-  which keeps the training process's memory bounded.
+- Tokenized splits are stored as one int32 array per example (18 instead of ~32 bytes per
+  token on mix-v1) and tokenized in streaming chunks, so loading a split never holds the whole
+  split as Python lists.
 
 ### Fixed
 - ModernBERT configs written by `transformers` 5 (`layer_types`, `rope_parameters`) were read

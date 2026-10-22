@@ -70,8 +70,9 @@ def encode_records(
 class _Packed:
     """One example in compact form: every token id in one int32 array plus the layout.
 
-    Python lists of ints cost ~28 bytes per token; mix-v0's training split took ~3 GB that way
-    and ~10x less like this. Examples are rebuilt on access, which costs microseconds.
+    Measured on mix-v1's training split (26.6M tokens): ~32 bytes per token as nested Python
+    lists, 18 bytes per token this way (0.46 GB), most of it per-example metadata rather than the
+    token ids themselves. Examples are rebuilt on access, which costs microseconds.
     """
 
     tokens: np.ndarray  # state, then each question's header followed by its options

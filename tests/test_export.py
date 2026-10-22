@@ -1,6 +1,5 @@
 """The ONNX graph reproduces the PyTorch model for every batch shape the server produces."""
 
-
 import pytest
 import torch
 

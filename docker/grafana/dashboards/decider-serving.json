@@ -497,6 +497,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           }
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(decider_batch_size_sum[5m])) / sum(rate(decider_batch_size_count[5m]))",
+          "legendFormat": "requests / forward pass (batching)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
         }
       ],
       "fieldConfig": {
@@ -522,6 +531,18 @@
                 "value": "right"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "requests / forward pass (batching)"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
           }
         ]
       },
@@ -533,7 +554,8 @@
         "tooltip": {
           "mode": "multi"
         }
-      }
+      },
+      "description": "State length (left axis); questions per request and, with dynamic batching enabled, requests per forward pass (right axis)."
     },
     {
       "id": 11,

@@ -101,7 +101,8 @@ uv run decider-eval --baseline nli --data data/processed/mix-v0
 |---|---|---|
 | `decider_requests_total` | counter | `status` = ok / rejected / error |
 | `decider_request_latency_seconds` | histogram | |
-| `decider_model_latency_seconds` | histogram | `cache` = hit / miss |
+| `decider_model_latency_seconds` | histogram | `cache` = hit / miss / batched |
+| `decider_batch_size` | histogram | requests per forward pass (dynamic batching) |
 | `decider_questions_per_request`, `decider_state_tokens` | histogram | |
 | `decider_confidence` | histogram | `type` |
 | `decider_low_confidence_total` | counter | `type` |
@@ -109,6 +110,7 @@ uv run decider-eval --baseline nli --data data/processed/mix-v0
 | `decider_state_cache_total`, `decider_state_cache_bytes` | counter, gauge | `result` |
 | `decider_confidence_psi` | gauge | `type` |
 | `decider_model_info` | gauge | `version` |
+| `decider_log_write_errors_total` | counter | `sink` = predictions / feedback |
 
 Labels are bounded (question *type*, never question name or option), so cardinality does not
 grow with traffic.

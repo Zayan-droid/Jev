@@ -28,7 +28,7 @@ from typing import Any
 from decider.data.converters import CONVERTERS
 from decider.data.io import sha256_file, split_path, write_records
 from decider.data.quality import assert_no_leakage, deduplicate, summarize
-from decider.data.synthetic import GEN_VERSION, SyntheticConfig, SyntheticGenerator
+from decider.data.synthetic import TEMPLATE_SETS, SyntheticConfig, SyntheticGenerator
 from decider.schema import Record
 from decider.utils.provenance import git_info
 
@@ -177,7 +177,7 @@ def build_dataset(cfg: BuildConfig) -> Path:
         "name": cfg.name,
         "data_hash": content_hash.hexdigest()[:16],
         "created_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
-        "generator_version": GEN_VERSION,
+        "generator_version": TEMPLATE_SETS[cfg.synthetic.template_set] if cfg.synthetic else None,
         "code": git_info(),
         "config": asdict(cfg),
         "licenses": licenses,

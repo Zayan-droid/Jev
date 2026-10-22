@@ -1,3 +1,4 @@
+import random
 from collections import Counter
 from pathlib import Path
 
@@ -185,3 +186,83 @@ def test_train_batches_respect_token_budget(tmp_path: Path) -> None:
         assert stats.tokens - max(split.lengths) < 4096
         assert 0 < stats.packing_efficiency <= 1
         assert batch.targets is not None
+
+
+# ----------------------------------------------------------------------------- template sets
+
+
+def _fingerprint(records: list) -> str:
+    import hashlib
+    import json
+
+    payload = "".join(json.dumps(r.model_dump(mode="json"), sort_keys=True) for r in records)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def test_template_set_v1_is_frozen() -> None:
+    """v1 must keep producing exactly the records mix-v0 and toy-v1 were built from."""
+    records = list(SyntheticGenerator(SyntheticConfig()).generate(200, "train", seed=0))
+    assert _fingerprint(records) == (
+        "3288d75aeb915f38717359714f95bfd73cf30d3b33482ceb9146759b4bc63b84"
+    )
+
+
+def test_template_set_v2_adds_templates_and_keeps_heldout_out() -> None:
+    held = ("inv.most_common_color", "arith.difference", "lookup.health")
+    cfg = SyntheticConfig(template_set="v2", heldout_families=("dates",), heldout_templates=held)
+    gen = SyntheticGenerator(cfg)
+    train = list(gen.generate(3000, "train", seed=0))
+    used = {t for r in train for t in r.meta["templates"]}
+    assert {"inv.count_qty_above", "arith.value_band", "lookup.flags_enabled"} <= used
+    assert not used & set(held)
+    assert all(r.gen_version == "synthetic-v2" for r in train)
+    heldout = list(gen.generate(300, "heldout", seed=0))
+    assert {t for r in heldout for t in r.meta["templates"]} <= {
+        *held,
+        *gen.families["dates"].templates,
+    }
+
+
+def test_unknown_heldout_template_is_rejected() -> None:
+    with pytest.raises(ValueError, match="held-out templates"):
+        SyntheticGenerator(SyntheticConfig(heldout_templates=("inv.no_such_template",)))
+
+
+def test_band_levels_match_band_index() -> None:
+    from decider.data.synthetic import _band, _band_levels
+
+    rng = random.Random(0)
+    edges = [1, 6, 11, 21]
+    levels = _band_levels(rng, edges, "units")
+    assert len(levels) == len(edges)
+    for value, expected in [(1, 0), (5, 0), (6, 1), (10, 1), (11, 2), (20, 2), (21, 3), (99, 3)]:
+        assert _band(value, edges) == expected, value
+    assert levels[-1] == "21 or more units"
+    assert _band_levels(rng, [0, 1, 3], "retries")[0] == "exactly 0 retries"
+
+
+def test_count_levels_are_read_not_positional() -> None:
+    from decider.data.synthetic import _count_levels
+
+    styles = {tuple(_count_levels(random.Random(seed), 4, "flag")) for seed in range(30)}
+    assert len(styles) == 3, "level wording must vary so the model has to read it"
+    assert all(len(s) == 4 and s[-1].startswith(("3", "three")) for s in styles)
+
+
+def test_v2_targets_are_correct() -> None:
+    gen = SyntheticGenerator(SyntheticConfig(template_set="v2"))
+    rng = random.Random(1)
+    world = {
+        "items": [
+            {"name": "lamp", "color": "red", "qty": 9, "location": "aisle 1"},
+            {"name": "lamp", "color": "blue", "qty": 3, "location": "aisle 2"},
+        ]
+    }
+    templates = gen.families["inventory"].templates
+    for _ in range(20):
+        question, target = templates["inv.count_qty_above"](world, rng)
+        threshold = int(question["instructions"].split()[-1].rstrip("?."))
+        expected = sum(q > threshold for q in (9, 3))
+        assert target.index(1.0) == expected
+    question, target = templates["inv.total_band"](world, rng)
+    assert target.index(1.0) == 2  # 12 lamp units -> [11, 21)

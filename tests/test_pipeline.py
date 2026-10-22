@@ -288,3 +288,41 @@ def test_micro_batcher_groups_concurrent_requests(trained: Path) -> None:
     batcher.close()
     assert not errors and all(r is not None for r in results)
     assert sum(sizes) == len(requests) + 1 and max(sizes) > 1
+
+
+def test_load_test_against_a_live_server(trained: Path) -> None:
+    import socket
+    import threading
+
+    import uvicorn
+
+    from decider.cli.loadtest import run_load
+
+    cfg = EngineConfig(
+        bundle=str(trained / "bundle"),
+        device="cpu",
+        prediction_log=None,
+        feedback_queue=None,
+        max_batch_size=4,
+        max_wait_ms=2,
+    )
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(create_app(cfg), port=port, log_config=None))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        from decider.client import DeciderClient
+
+        client = DeciderClient(f"http://127.0.0.1:{port}")
+        for _ in range(100):
+            if client.ready():
+                break
+            threading.Event().wait(0.1)
+        result = run_load(f"http://127.0.0.1:{port}", _requests()[:3] * 4, concurrency=3, warmup=1)
+        assert result["errors"] == 0 and result["requests"] == 12
+        assert result["requests_per_s"] > 0 and result["p50_ms"] <= result["p99_ms"]
+    finally:
+        server.should_exit = True
+        thread.join(timeout=10)

@@ -61,6 +61,7 @@ decider-label = "decider.cli.label:main"
 decider-monitor = "decider.cli.monitor:main"
 decider-compare = "decider.cli.compare:main"
 decider-export = "decider.cli.export:main"
+decider-loadtest = "decider.cli.loadtest:main"
 
 [dependency-groups]
 dev = [

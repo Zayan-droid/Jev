@@ -9,8 +9,8 @@ stages:
       size: 729
     - path: src/decider/data
       hash: md5
-      md5: ef58da51b5be3de509b4157cb9aed751.dir
-      size: 50419
+      md5: 2f44d95d0e528b6a4b4a135fa35c0571.dir
+      size: 58538
       nfiles: 7
     - path: src/decider/schema.py
       hash: md5
@@ -31,8 +31,8 @@ stages:
       size: 1090
     - path: src/decider/data
       hash: md5
-      md5: ef58da51b5be3de509b4157cb9aed751.dir
-      size: 50419
+      md5: 2f44d95d0e528b6a4b4a135fa35c0571.dir
+      size: 58538
       nfiles: 7
     - path: src/decider/schema.py
       hash: md5
@@ -43,4 +43,26 @@ stages:
       hash: md5
       md5: 5da1341769fb11e6a1009d3e679e5274.dir
       size: 23790576
+      nfiles: 7
+  data_mix_v1:
+    cmd: decider-build-data data=mix-v1
+    deps:
+    - path: configs/data/mix-v1.yaml
+      hash: md5
+      md5: 16f6b2477cd2d46b805a3a927bc432fb
+      size: 1216
+    - path: src/decider/data
+      hash: md5
+      md5: 2f44d95d0e528b6a4b4a135fa35c0571.dir
+      size: 58538
+      nfiles: 7
+    - path: src/decider/schema.py
+      hash: md5
+      md5: a408b12e9faf3967f30088495036cf43
+      size: 6668
+    outs:
+    - path: data/processed/mix-v1
+      hash: md5
+      md5: 6d792eec2ad7f5497f30e02fc7e28b90.dir
+      size: 24487378
       nfiles: 7

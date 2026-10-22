@@ -1,0 +1,7 @@
+# @package _global_
+# Model v0.2: the v0.1 recipe on mix-v1 (more diverse synthetic templates).
+defaults:
+  - modernbert-mix
+  - override /data: mix-v1
+
+name: modernbert-mix-v1

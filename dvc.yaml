@@ -19,6 +19,15 @@ stages:
     outs:
       - data/processed/mix-v0
 
+  data_mix_v1:
+    cmd: decider-build-data data=mix-v1
+    deps:
+      - configs/data/mix-v1.yaml
+      - src/decider/data
+      - src/decider/schema.py
+    outs:
+      - data/processed/mix-v1
+
   train_toy:
     cmd: decider-train experiment=toy run_dir=runs/pipeline/toy-tiny
     deps:

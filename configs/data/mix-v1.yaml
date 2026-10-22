@@ -1,0 +1,34 @@
+# mix-v0 with synthetic template set v2: more counting and range questions and varied level
+# wording. Sources, sizes and seed are unchanged, and held-out records are generated identically;
+# leakage removal can drop a slightly different handful because the training states changed.
+name: mix-v1
+output_root: data/processed
+seed: 0
+val_fraction: 0.03
+calib_fraction: 0.03
+sources:
+  - {name: banking77}
+  - {name: ag_news, max_train: 30000, max_eval: 3000}
+  - {name: mnli, max_train: 40000, max_eval: 3000}
+  - {name: boolq}
+  - {name: yelp, max_train: 25000, max_eval: 3000}
+  - {name: clinc150, max_eval: 2000}
+  - {name: sciq, max_eval: 1000}
+local_sources:
+  # Hand-labelled evaluation set and reviewed production feedback (see `decider-label`).
+  - {path: data/gold/gold.jsonl, split: gold}
+  - {path: data/feedback/labeled.jsonl, split: train}
+synthetic:
+  families: [inventory, inventory_text, arithmetic, dates, lookup]
+  heldout_families: [dates]
+  heldout_templates: [inv.most_common_color, arith.difference, lookup.health]
+  questions_per_record: [1, 4]
+  negation_rate: 0.15
+  injection_rate: 0.1
+  template_set: v2
+synthetic_sizes:
+  train: 40000
+  val: 1500
+  calib: 1500
+  test: 3000
+  heldout: 3000

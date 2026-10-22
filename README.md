@@ -211,7 +211,7 @@ flowchart LR
 | **During training** | MLflow (metrics, GPU/CPU system metrics, reliability diagram at every eval, artifacts); live Prometheus exporter + Grafana training dashboard; health monitors for non-finite loss, loss spikes, gradient norm and update/weight ratios |
 | **After training** | temperature scaling, full evaluation report (calibration, selective prediction, zero-shot, robustness, latency), release gate, MLflow model registry with `challenger` / `champion` aliases |
 | **In production** | Prometheus metrics with bounded labels, Grafana serving dashboard, confidence drift (PSI against the training-time reference), alert rules, PII-redacted prediction log, low-confidence review queue feeding the next data version |
-| **CI** | ruff, mypy, pytest (invariance, parity, resume, API), a smoke pipeline that builds, trains, evaluates and serves, Docker build |
+| **CI** | ruff, mypy, pytest (invariance, ModernBERT and ONNX parity, resume, API, batching), a smoke pipeline that builds, trains, evaluates and serves, the serving container with a named log volume, Prometheus rules and Grafana provisioning |
 
 ```bash
 uv run poe mlflow                                   # http://127.0.0.1:5000
@@ -231,15 +231,17 @@ Details, the training dashboard and the runbook: [docs/OBSERVABILITY.md](docs/OB
 ```
 configs/                Hydra: data/ model/ train/ gate/ experiment/
 src/decider/
-  schema.py             request / response / record schemas
+  schema.py             request / response / record schemas, size limits
   tokenization.py       byte and Hugging Face tokenizers + decision tokens
   packing.py masks.py   packing, tree positions, segment masks
   model/                encoder, heads, ModernBERT loader, state cache
-  data/                 converters, programmatic tasks, dedup/leakage, sampling
-  training/             trainer, losses, checkpoints, telemetry, health
-  evaluation/           metrics, calibration, robustness, latency, report, gate, baselines
-  serving/              FastAPI app, engine, monitoring, redaction
-  registry.py bundle.py inference.py
+  data/                 converters, programmatic template sets, dedup/leakage, sampling
+  training/             trainer, losses, checkpoints, telemetry, health monitors
+  evaluation/           metrics, calibration, robustness, latency, report, gate, baselines,
+                        paired comparison
+  serving/              FastAPI app, engine, micro-batching, monitoring, redaction, log analysis
+  cli/                  decider-* entry points
+  bundle.py registry.py inference.py export.py client.py
 docker/                 serving image, Prometheus (+ alerts), Grafana dashboards
 docs/                   DESIGN.md  DATA.md  OBSERVABILITY.md  MODEL_CARD.md
 tests/

@@ -19,6 +19,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 MAX_QUESTIONS = 32
 MAX_OPTIONS = 255
 MIN_LEVELS, MAX_LEVELS = 2, 10
+# Size limits keep a single request from tying up the tokenizer: text beyond what the model reads
+# is truncated anyway (the state to ~512 tokens, instructions and options to <100 tokens).
+MAX_STATE_CHARS = 100_000
+MAX_TEXT_CHARS = 2_000
 _PROB_TOL = 1e-3
 
 QuestionType = Literal["noul", "choice", "score"]
@@ -30,12 +34,12 @@ class _Strict(BaseModel):
 
 class NoulQuestion(_Strict):
     type: Literal["noul"] = "noul"
-    instructions: str = Field(min_length=1)
+    instructions: str = Field(min_length=1, max_length=MAX_TEXT_CHARS)
 
 
 class ChoiceQuestion(_Strict):
     type: Literal["choice"] = "choice"
-    instructions: str = Field(min_length=1)
+    instructions: str = Field(min_length=1, max_length=MAX_TEXT_CHARS)
     criteria: dict[str, str] = Field(description="Option name -> description of when it applies.")
 
     @field_validator("criteria")
@@ -45,12 +49,14 @@ class ChoiceQuestion(_Strict):
             raise ValueError(f"choice questions need 2..{MAX_OPTIONS} options, got {len(value)}")
         if any(not k for k in value):
             raise ValueError("option names must be non-empty")
+        if any(len(k) + len(v) > MAX_TEXT_CHARS for k, v in value.items()):
+            raise ValueError(f"an option name plus description exceeds {MAX_TEXT_CHARS} characters")
         return value
 
 
 class ScoreQuestion(_Strict):
     type: Literal["score"] = "score"
-    instructions: str = Field(min_length=1)
+    instructions: str = Field(min_length=1, max_length=MAX_TEXT_CHARS)
     levels: list[str] = Field(description="Description of each level, lowest first.")
 
     @field_validator("levels")
@@ -58,6 +64,8 @@ class ScoreQuestion(_Strict):
     def _check_levels(cls, value: list[str]) -> list[str]:
         if not MIN_LEVELS <= len(value) <= MAX_LEVELS:
             raise ValueError(f"score questions need {MIN_LEVELS}..{MAX_LEVELS} levels")
+        if any(len(level) > MAX_TEXT_CHARS for level in value):
+            raise ValueError(f"a level description exceeds {MAX_TEXT_CHARS} characters")
         return value
 
 
@@ -74,6 +82,13 @@ class DecisionRequest(_Strict):
     def _check_questions(cls, value: dict[str, Question]) -> dict[str, Question]:
         if not 1 <= len(value) <= MAX_QUESTIONS:
             raise ValueError(f"requests need 1..{MAX_QUESTIONS} questions, got {len(value)}")
+        return value
+
+    @field_validator("state")
+    @classmethod
+    def _check_state(cls, value: State) -> State:
+        if len(serialize_state(value)) > MAX_STATE_CHARS:
+            raise ValueError(f"the state exceeds {MAX_STATE_CHARS} characters when serialised")
         return value
 
 

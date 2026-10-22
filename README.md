@@ -172,19 +172,22 @@ curl -s localhost:8000/v1/decide -H 'content-type: application/json' \
   -d '{"state": "My card still has not arrived", "questions": {"lost": {"type": "noul", "instructions": "Is the customer reporting a lost card?"}}}'
 ```
 
-`--max-batch-size 16` turns on dynamic batching: concurrent requests wait up to
-`--max-wait-ms` and are packed into one forward pass (the single-request path keeps the
-state cache instead).
-
-`decider-export --bundle <bundle>` writes an ONNX graph next to the weights and checks it
-against PyTorch (install with `--extra export`).
-
-or run it in Docker (CPU image) next to Prometheus and Grafana:
+The same API runs in Docker (CPU image) next to Prometheus and Grafana:
 
 ```bash
 export DECIDER_BUNDLE_DIR=$PWD/runs/modernbert-mix/<timestamp>/bundle
 docker compose -f docker/docker-compose.yml --profile api up -d --build   # API on :8001
 ```
+
+Serving options worth knowing:
+
+* `--max-batch-size 16` turns on dynamic batching: concurrent requests wait up to
+  `--max-wait-ms` and share one packed forward pass (the single-request path keeps the state
+  cache instead).
+* `decider-export --bundle <bundle>` writes an ONNX graph next to the weights and checks it
+  against PyTorch (install with `--extra export`).
+* `decider-compare <eval dir A> <eval dir B>` compares two model versions on the questions both
+  were evaluated on, with paired bootstrap intervals.
 
 ## MLOps and observability
 

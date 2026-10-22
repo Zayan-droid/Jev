@@ -12,7 +12,7 @@ from decider.packing import Example, RequestEncoder, collate
 from tests.conftest import LIMITS, encode, make_model, sample_request
 
 
-def test_features_come_with_identical_logits(encoder) -> None:
+def test_features_come_with_identical_logits(encoder: RequestEncoder) -> None:
     model = make_model()
     batch = collate([encode(encoder, sample_request(i)) for i in range(3)], LIMITS.max_seq_len)
     with torch.no_grad():
@@ -61,7 +61,7 @@ def test_auroc_matches_brute_force_with_ties() -> None:
     assert np.isnan(auroc(np.array([]), pos))
 
 
-def test_collect_features_aligns_rows(encoder) -> None:
+def test_collect_features_aligns_rows(encoder: RequestEncoder) -> None:
     records = list(SyntheticGenerator(SyntheticConfig()).generate(12, "test", seed=0))
     tokenized = encoder.encode_many(records)
     examples = [

@@ -161,15 +161,16 @@ class EncodedSplit:
         cache = cache_root / "tokenized" / data_dir.name / f"{split}-{fingerprint}.pkl"
         if use_cache and cache.exists():
             with cache.open("rb") as f:
-                packed = pickle.load(f)
-            log.info("%s: %d examples (cached)", split, len(packed))
-            return cls._from_packed(packed, split)
-        records = []
-        for record in iter_records(path):
-            records.append(record)
-            if limit is not None and len(records) >= limit:
-                break
-        result = cls(encode_records(records, encoder), split)
+                cached: list[_Packed] = pickle.load(f)
+            log.info("%s: %d examples (cached)", split, len(cached))
+            return cls._from_packed(cached, split)
+        # Stream: read, tokenize and pack one chunk at a time, so peak memory is one chunk of
+        # records and lists rather than the whole split (Python rarely returns freed memory).
+        packed: list[_Packed] = []
+        records = itertools.islice(iter_records(path), limit)
+        while chunk := list(itertools.islice(records, 4096)):
+            packed.extend(_pack(ex) for ex in encode_records(chunk, encoder))
+        result = cls._from_packed(packed, split)
         if use_cache:
             cache.parent.mkdir(parents=True, exist_ok=True)
             with cache.open("wb") as f:

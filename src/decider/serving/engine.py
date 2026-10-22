@@ -15,7 +15,7 @@ from typing import Any
 import torch
 
 from decider.bundle import Bundle, load_bundle
-from decider.inference import split_predictions
+from decider.inference import Prediction, split_predictions
 from decider.model.decider import StateCache
 from decider.packing import Example, RequestEncoder, collate
 from decider.schema import Answer, DecisionRequest, serialize_state
@@ -36,6 +36,9 @@ class EngineConfig:
     log_states: bool = True  # redacted copies; set False to log only a state hash
     drift_window: int = 1000
     drift_min_samples: int = 200
+    # Dynamic batching (see decider.serving.batching); 1 disables it and keeps the state cache.
+    max_batch_size: int = 1
+    max_wait_ms: float = 5.0
 
 
 class LRUStateCache:
@@ -144,13 +147,66 @@ class DecisionEngine:
                 torch.cuda.synchronize()
             model_ms = (time.perf_counter() - start) * 1000
         predictions = split_predictions(batch, logits, probs, 1)[0]
-        answers = {name: predictions[name].answer() for name in request.questions}
-
         m.CACHE_EVENTS.labels(result="hit" if hit else "miss").inc()
         m.CACHE_BYTES.set(self.cache.bytes)
         m.MODEL_LATENCY.labels(cache="hit" if hit else "miss").observe(model_ms / 1000)
+        return self._result(request, predictions, len(tokenized.state), model_ms, hit)
+
+    def decide_many(self, requests: list[DecisionRequest]) -> list[DecisionResult | Exception]:
+        """Answer several requests with one packed forward pass.
+
+        Requests share rows (the masks keep them apart), so a batch costs about as much as its
+        total token count. Each request either gets a result or the exception that rejected
+        it, for example a request too long for the model. The state cache is not used.
+        """
+        outcomes: list[DecisionResult | Exception | None] = [None] * len(requests)
+        accepted: list[tuple[int, Example]] = []
+        for i, request in enumerate(requests):
+            try:
+                accepted.append((i, Example(self.encoder.encode(request))))
+            except ValueError as exc:
+                outcomes[i] = exc
+        if accepted:
+            self._run_batch(requests, accepted, outcomes)
+        return [o for o in outcomes if o is not None]
+
+    def _run_batch(
+        self,
+        requests: list[DecisionRequest],
+        accepted: list[tuple[int, Example]],
+        outcomes: list[DecisionResult | Exception | None],
+    ) -> None:
+        examples = [ex for _, ex in accepted]
+        batch = collate(
+            examples, self.bundle.limits.max_seq_len, pad_id=self.bundle.tokenizer.pad_id
+        )
+        batch = batch.to(self.device)
+        model = self.bundle.model
+        with self._lock, torch.inference_mode(), self._autocast():
+            start = time.perf_counter()
+            logits = model(batch)
+            probs = model.probabilities(logits)
+            if self.device.type == "cuda":
+                torch.cuda.synchronize()
+            model_ms = (time.perf_counter() - start) * 1000
+        m.BATCH_SIZE.observe(len(examples))
+        m.MODEL_LATENCY.labels(cache="batched").observe(model_ms / 1000)
+        per_example = split_predictions(batch, logits, probs, len(examples))
+        for (i, example), predictions in zip(accepted, per_example, strict=True):
+            state_tokens = len(example.request.state)
+            outcomes[i] = self._result(requests[i], predictions, state_tokens, model_ms, False)
+
+    def _result(
+        self,
+        request: DecisionRequest,
+        predictions: dict[str, Prediction],
+        state_tokens: int,
+        model_ms: float,
+        cache_hit: bool,
+    ) -> DecisionResult:
+        answers = {name: predictions[name].answer() for name in request.questions}
         m.QUESTIONS.observe(len(request.questions))
-        m.STATE_TOKENS.observe(len(tokenized.state))
+        m.STATE_TOKENS.observe(state_tokens)
         review = []
         for name, answer in answers.items():
             confidence = max(predictions[name].distribution())
@@ -162,7 +218,7 @@ class DecisionEngine:
                 m.LOW_CONFIDENCE.labels(type=answer.type).inc()
                 review.append(name)
         self.drift.export()
-        return DecisionResult(answers, hit, len(tokenized.state), model_ms, review)
+        return DecisionResult(answers, cache_hit, state_tokens, model_ms, review)
 
     # ------------------------------------------------------------------ logging
 

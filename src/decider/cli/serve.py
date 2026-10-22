@@ -35,6 +35,13 @@ def main(argv: list[str] | None = None) -> None:
             "chance it is right) is below this value"
         ),
     )
+    p.add_argument(
+        "--max-batch-size",
+        type=int,
+        default=1,
+        help="batch concurrent requests into one forward pass (1 disables; uses no state cache)",
+    )
+    p.add_argument("--max-wait-ms", type=float, default=5.0, help="how long a batch may wait")
     p.add_argument("--log-dir", type=Path, default=Path("logs"))
     p.add_argument(
         "--feedback-queue",
@@ -70,6 +77,8 @@ def main(argv: list[str] | None = None) -> None:
         prediction_log=str(args.log_dir / "predictions.jsonl"),
         feedback_queue=str(args.feedback_queue),
         log_states=not args.no_state_logging,
+        max_batch_size=args.max_batch_size,
+        max_wait_ms=args.max_wait_ms,
     )
     uvicorn.run(create_app(cfg), host=args.host, port=args.port, log_config=None)
 

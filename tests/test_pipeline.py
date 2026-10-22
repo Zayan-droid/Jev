@@ -15,6 +15,7 @@ from decider.data.dataset import TrainBatches
 from decider.evaluation.report import EvalConfig
 from decider.model import EncoderConfig, ModelConfig
 from decider.packing import PackingLimits
+from decider.schema import DecisionRequest
 from decider.serving.analysis import analyse, read_log, render
 from decider.serving.app import create_app
 from decider.serving.engine import DecisionEngine, EngineConfig
@@ -213,3 +214,77 @@ def test_python_client_against_a_live_server(trained: Path, tmp_path: Path) -> N
     finally:
         server.should_exit = True
         thread.join(timeout=10)
+
+
+def _requests() -> list[DecisionRequest]:
+    base = {
+        "red": {"type": "noul", "instructions": "Is there a red item?"},
+        "pick": {"type": "choice", "instructions": "Which?", "criteria": {"a": "x", "b": "y"}},
+        "level": {"type": "score", "instructions": "How many?", "levels": ["0", "1", "2"]},
+    }
+    too_long = {
+        "type": "choice",
+        "instructions": "Pick",
+        "criteria": {f"o{i}": "x" * 60 for i in range(40)},
+    }
+    return [
+        DecisionRequest(state={"items": [{"color": c, "qty": q}]}, questions=base)
+        for c, q in (("red", 1), ("blue", 7), ("green", 3))
+    ] + [DecisionRequest(state="x", questions={"big": too_long})]
+
+
+def test_batched_answers_match_single_requests(trained: Path) -> None:
+    cfg = EngineConfig(
+        bundle=str(trained / "bundle"), device="cpu", prediction_log=None, feedback_queue=None
+    )
+    engine = DecisionEngine(cfg)
+    requests = _requests()
+    batched = engine.decide_many(requests)
+    assert isinstance(batched[-1], ValueError), "an oversized request fails on its own"
+    for request, outcome in zip(requests[:-1], batched[:-1], strict=True):
+        single = engine.decide(request)
+        assert not isinstance(outcome, Exception)
+        for name, answer in single.answers.items():
+            a, b = answer.model_dump(), outcome.answers[name].model_dump()
+            key = {"noul": "p_yes", "choice": "distribution", "score": "distribution"}[answer.type]
+            assert a[key] == pytest.approx(b[key], abs=1e-5)
+
+
+def test_micro_batcher_groups_concurrent_requests(trained: Path) -> None:
+    import threading
+
+    from decider.serving.batching import MicroBatcher
+
+    cfg = EngineConfig(
+        bundle=str(trained / "bundle"), device="cpu", prediction_log=None, feedback_queue=None
+    )
+    engine = DecisionEngine(cfg)
+    sizes: list[int] = []
+    original = engine.decide_many
+
+    def spy(requests: list[DecisionRequest]) -> list:
+        sizes.append(len(requests))
+        return original(requests)
+
+    engine.decide_many = spy  # type: ignore[method-assign]
+    batcher = MicroBatcher(engine, max_batch_size=8, max_wait_ms=300)
+    requests = _requests()[:3] * 3
+    results: list = [None] * len(requests)
+    errors: list[Exception] = []
+
+    def call(i: int) -> None:
+        try:
+            results[i] = batcher.submit(requests[i])
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=call, args=(i,)) for i in range(len(requests))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    with pytest.raises(ValueError):
+        batcher.submit(_requests()[-1])
+    batcher.close()
+    assert not errors and all(r is not None for r in results)
+    assert sum(sizes) == len(requests) + 1 and max(sizes) > 1

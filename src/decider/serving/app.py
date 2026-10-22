@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -24,19 +25,23 @@ from prometheus_client import make_asgi_app
 
 from decider.schema import DecisionRequest, DecisionResponse
 from decider.serving import monitoring as m
+from decider.serving.batching import MicroBatcher
 from decider.serving.engine import DecisionEngine, EngineConfig
 
 log = logging.getLogger("decider.access")
 
 
 def create_app(cfg: EngineConfig, engine: DecisionEngine | None = None) -> FastAPI:
-    state: dict[str, Any] = {"engine": engine}
+    state: dict[str, Any] = {"engine": engine, "batcher": None}
+    batcher_lock = threading.Lock()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if state["engine"] is None:
             state["engine"] = DecisionEngine(cfg)
         yield
+        if state["batcher"] is not None:
+            state["batcher"].close()
 
     app = FastAPI(title="decider", version="0.1.0", lifespan=lifespan)
     app.mount("/metrics", make_asgi_app())
@@ -46,6 +51,14 @@ def create_app(cfg: EngineConfig, engine: DecisionEngine | None = None) -> FastA
         if engine is None:
             raise HTTPException(status_code=503, detail="model not loaded")
         return engine
+
+    def get_batcher() -> MicroBatcher | None:
+        if cfg.max_batch_size <= 1:
+            return None
+        with batcher_lock:
+            if state["batcher"] is None:
+                state["batcher"] = MicroBatcher(get_engine(), cfg.max_batch_size, cfg.max_wait_ms)
+            return state["batcher"]
 
     @app.middleware("http")
     async def access_log(
@@ -89,13 +102,15 @@ def create_app(cfg: EngineConfig, engine: DecisionEngine | None = None) -> FastA
         return get_engine().drift.export()
 
     # A plain `def` endpoint runs in FastAPI's thread pool, keeping the event loop free while
-    # the model runs; the engine serialises access to the device.
+    # the model runs. Requests either go through the micro-batcher or straight to the engine,
+    # which serialises access to the device.
     @app.post("/v1/decide", response_model=DecisionResponse)
     def decide(body: DecisionRequest, request: Request) -> DecisionResponse:
         engine = get_engine()
+        batcher = get_batcher()
         start = time.perf_counter()
         try:
-            result = engine.decide(body)
+            result = batcher.submit(body) if batcher is not None else engine.decide(body)
         except ValueError as exc:
             m.REQUESTS.labels(status="rejected").inc()
             raise HTTPException(status_code=422, detail=str(exc)) from exc

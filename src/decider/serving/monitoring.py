@@ -29,9 +29,14 @@ LATENCY = Histogram(
 )
 MODEL_LATENCY = Histogram(
     "decider_model_latency_seconds",
-    "Model forward time, by state cache outcome",
+    "Model forward time: state cache hit or miss, or a dynamically batched pass",
     ["cache"],
     buckets=(0.005, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.075, 0.1, 0.25, 0.5, 1.0),
+)
+BATCH_SIZE = Histogram(
+    "decider_batch_size",
+    "Requests per forward pass (dynamic batching)",
+    buckets=(1, 2, 4, 8, 16, 32),
 )
 QUESTIONS = Histogram(
     "decider_questions_per_request", "Questions per request", buckets=(1, 2, 4, 8, 16, 32)
@@ -66,7 +71,8 @@ for _status in ("ok", "rejected", "error"):
     REQUESTS.labels(status=_status)
 for _result in ("hit", "miss"):
     CACHE_EVENTS.labels(result=_result)
-    MODEL_LATENCY.labels(cache=_result)
+for _path in ("hit", "miss", "batched"):
+    MODEL_LATENCY.labels(cache=_path)
 for _answer in ("yes", "no"):
     NOUL_YES.labels(answer=_answer)
 for _sink in ("predictions", "feedback"):

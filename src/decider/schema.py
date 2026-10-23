@@ -203,3 +203,6 @@ class DecisionResponse(_Strict):
     cache_hit: bool
     # Questions whose confidence fell below the server's review threshold.
     review: list[str]
+    # Questions unlike those the model was calibrated on, whose confidence deserves less
+    # trust. Always empty when the bundle has no familiarity detector.
+    unfamiliar: list[str] = []

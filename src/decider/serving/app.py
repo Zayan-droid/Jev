@@ -129,6 +129,7 @@ def create_app(cfg: EngineConfig, engine: DecisionEngine | None = None) -> FastA
             latency_ms=round(latency_ms, 3),
             cache_hit=result.cache_hit,
             review=result.review,
+            unfamiliar=result.unfamiliar,
         )
 
     return app

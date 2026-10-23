@@ -53,6 +53,11 @@ CONFIDENCE = Histogram(
 LOW_CONFIDENCE = Counter(
     "decider_low_confidence_total", "Answers below the review threshold", ["type"]
 )
+UNFAMILIAR = Counter(
+    "decider_unfamiliar_total",
+    "Answers to questions the familiarity detector flags as unlike the calibration data",
+    ["type"],
+)
 NOUL_YES = Counter("decider_noul_answers_total", "noul answers", ["answer"])
 CACHE_EVENTS = Counter("decider_state_cache_total", "State cache lookups", ["result"])
 CACHE_BYTES = Gauge("decider_state_cache_bytes", "Bytes held by the state cache")
@@ -80,6 +85,7 @@ for _sink in ("predictions", "feedback"):
 for _type in TYPES:
     CONFIDENCE.labels(type=_type)
     LOW_CONFIDENCE.labels(type=_type)
+    UNFAMILIAR.labels(type=_type)
 
 
 def psi(expected: np.ndarray, actual: np.ndarray, eps: float = 1e-4) -> float:

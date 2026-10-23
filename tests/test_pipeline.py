@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from decider.bundle import load_bundle
 from decider.data.build import BuildConfig, build_dataset
 from decider.data.dataset import TrainBatches
+from decider.evaluation.familiarity import Familiarity
 from decider.evaluation.report import EvalConfig
 from decider.model import EncoderConfig, ModelConfig
 from decider.packing import PackingLimits
@@ -83,6 +85,8 @@ def test_training_produces_report_and_bundle(trained: Path) -> None:
     bundle = load_bundle(trained / "bundle")
     assert set(bundle.model.temperatures()) == {"noul", "choice", "score"}
     assert (trained / "bundle" / "reference.json").exists()
+    detector = Familiarity.load(trained / "bundle" / "familiarity.npz")
+    assert set(detector.threshold) == {"noul", "choice", "score"}
 
 
 def test_resume_after_interruption_is_exact(
@@ -248,6 +252,35 @@ def test_batched_answers_match_single_requests(trained: Path) -> None:
             a, b = answer.model_dump(), outcome.answers[name].model_dump()
             key = {"noul": "p_yes", "choice": "distribution", "score": "distribution"}[answer.type]
             assert a[key] == pytest.approx(b[key], abs=1e-5)
+
+
+def test_unfamiliar_questions_are_flagged_and_queued(trained: Path, tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    shutil.copytree(trained / "bundle", bundle)
+    detector = Familiarity.load(bundle / "familiarity.npz")
+    # Flag every noul question and nothing else, whatever the features.
+    detector.threshold = {"noul": -1.0, "choice": float("inf"), "score": float("inf")}
+    detector.save(bundle / "familiarity.npz")
+    cfg = EngineConfig(
+        bundle=str(bundle),
+        device="cpu",
+        prediction_log=None,
+        feedback_queue=str(tmp_path / "queue.jsonl"),
+        low_confidence_threshold=0.0,  # nothing is low-confidence
+    )
+    engine = DecisionEngine(cfg)
+    request = _requests()[0]
+    miss, hit = engine.decide(request), engine.decide(request)
+    assert (miss.cache_hit, hit.cache_hit) == (False, True)
+    batched = engine.decide_many([request])[0]
+    assert not isinstance(batched, Exception)
+    for result in (miss, hit, batched):
+        assert result.unfamiliar == ["red"]
+        assert result.review == []
+    engine.record("r1", request, miss, 1.0)
+    queued = json.loads((tmp_path / "queue.jsonl").read_text())
+    assert queued["review"] == ["red"], "unfamiliar questions are queued for labelling"
+    assert queued["unfamiliar"] == ["red"]
 
 
 def test_micro_batcher_groups_concurrent_requests(trained: Path) -> None:

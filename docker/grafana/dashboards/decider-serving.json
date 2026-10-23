@@ -679,7 +679,7 @@
       "gridPos": {
         "x": 0,
         "y": 30,
-        "w": 12,
+        "w": 8,
         "h": 8
       },
       "targets": [
@@ -718,6 +718,56 @@
       }
     },
     {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Unfamiliar share (familiarity detector)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 30,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (type) (rate(decider_unfamiliar_total[5m])) / sum by (type) (rate(decider_confidence_count[5m]))",
+          "legendFormat": "{{type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Share of answers whose question the bundle's familiarity detector flags as unlike the calibration data. About 5% in distribution by construction; a sustained rise means new kinds of questions, whose confidence is less trustworthy. Zero if the bundle has no detector."
+    },
+    {
       "id": 15,
       "type": "timeseries",
       "title": "noul answer mix",
@@ -726,9 +776,9 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 12,
+        "x": 16,
         "y": 30,
-        "w": 12,
+        "w": 8,
         "h": 8
       },
       "targets": [

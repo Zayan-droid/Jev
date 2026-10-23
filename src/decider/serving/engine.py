@@ -15,9 +15,10 @@ from typing import Any
 import torch
 
 from decider.bundle import Bundle, load_bundle
+from decider.evaluation.familiarity import Familiarity
 from decider.inference import Prediction, split_predictions
-from decider.model.decider import StateCache
-from decider.packing import Example, RequestEncoder, collate
+from decider.model.decider import StateCache, readout_features
+from decider.packing import Batch, Example, RequestEncoder, collate
 from decider.schema import Answer, DecisionRequest, serialize_state
 from decider.serving import monitoring as m
 from decider.serving.redaction import redact
@@ -82,6 +83,7 @@ class DecisionResult:
     state_tokens: int
     model_ms: float
     review: list[str] = field(default_factory=list)  # questions below the confidence threshold
+    unfamiliar: list[str] = field(default_factory=list)  # flagged by the familiarity detector
 
 
 class DecisionEngine:
@@ -102,6 +104,10 @@ class DecisionEngine:
             else {}
         )
         self.drift = m.DriftMonitor(reference, cfg.drift_window, cfg.drift_min_samples)
+        # Optional: a bundle carries a detector once `decider-familiarity --save` has fitted
+        # one (training does it automatically). Without it, no question is ever flagged.
+        familiarity_path = Path(cfg.bundle) / "familiarity.npz"
+        self.familiarity = Familiarity.load(familiarity_path) if familiarity_path.exists() else None
         self._log_lock = threading.Lock()
         m.MODEL_INFO.labels(version=self.version).set(1)
         log.info("loaded %s on %s", self.version, self.device)
@@ -121,6 +127,7 @@ class DecisionEngine:
             "data": meta.get("data"),
             "code": meta.get("code"),
             "summary": meta.get("summary"),
+            "familiarity": self.familiarity is not None,
         }
 
     def _autocast(self) -> torch.autocast:
@@ -142,19 +149,22 @@ class DecisionEngine:
             cache = self.cache.get(key)
             hit = cache is not None
             if cache is None:
-                logits, cache = model.forward_and_cache(batch, len(tokenized.state))
+                flat, index, cache = model.encode_and_cache(batch, len(tokenized.state))
                 self.cache.put(key, cache)
             else:
-                logits = model.forward_cached(cache, batch)
+                flat, index = model.encode_cached(cache, batch)
+            logits = model.heads(flat, index, batch.option_mask)
             probs = model.probabilities(logits)
             if self.device.type == "cuda":
                 torch.cuda.synchronize()
             model_ms = (time.perf_counter() - start) * 1000
+            unfamiliar = self._unfamiliar(batch, flat, index, 1)[0]
         predictions = split_predictions(batch, logits, probs, 1)[0]
         m.CACHE_EVENTS.labels(result="hit" if hit else "miss").inc()
         m.CACHE_BYTES.set(self.cache.bytes)
         m.MODEL_LATENCY.labels(cache="hit" if hit else "miss").observe(model_ms / 1000)
-        return self._result(request, predictions, len(tokenized.state), model_ms, hit)
+        state_tokens = len(tokenized.state)
+        return self._result(request, predictions, state_tokens, model_ms, hit, unfamiliar)
 
     def decide_many(self, requests: list[DecisionRequest]) -> list[DecisionResult | Exception]:
         """Answer several requests with one packed forward pass.
@@ -188,17 +198,39 @@ class DecisionEngine:
         model = self.bundle.model
         with self._lock, torch.inference_mode(), self._autocast():
             start = time.perf_counter()
-            logits = model(batch)
+            flat = model.encode(batch)
+            logits = model.heads(flat, batch.index, batch.option_mask)
             probs = model.probabilities(logits)
             if self.device.type == "cuda":
                 torch.cuda.synchronize()
             model_ms = (time.perf_counter() - start) * 1000
+            unfamiliar = self._unfamiliar(batch, flat, batch.index, len(examples))
         m.BATCH_SIZE.observe(len(examples))
         m.MODEL_LATENCY.labels(cache="batched").observe(model_ms / 1000)
         per_example = split_predictions(batch, logits, probs, len(examples))
-        for (i, example), predictions in zip(accepted, per_example, strict=True):
+        for j, ((i, example), predictions) in enumerate(zip(accepted, per_example, strict=True)):
             state_tokens = len(example.request.state)
-            outcomes[i] = self._result(requests[i], predictions, state_tokens, model_ms, False)
+            outcomes[i] = self._result(
+                requests[i], predictions, state_tokens, model_ms, False, unfamiliar[j]
+            )
+
+    def _unfamiliar(
+        self, batch: Batch, flat: torch.Tensor, index: dict[str, torch.Tensor], n: int
+    ) -> list[set[str]]:
+        """Per example in the batch, the questions the familiarity detector flags."""
+        flagged: list[set[str]] = [set() for _ in range(n)]
+        if self.familiarity is None:
+            return flagged
+        features = readout_features(flat, index, batch.option_mask)
+        for t, x in features.items():
+            readouts = batch.readouts[t]
+            if not readouts:
+                continue
+            flags = self.familiarity.unfamiliar(t, x[: len(readouts)].cpu().numpy())
+            for readout, flag in zip(readouts, flags, strict=True):
+                if flag:
+                    flagged[readout.example].add(readout.question)
+        return flagged
 
     def _result(
         self,
@@ -207,11 +239,13 @@ class DecisionEngine:
         state_tokens: int,
         model_ms: float,
         cache_hit: bool,
+        unfamiliar: set[str],
     ) -> DecisionResult:
         answers = {name: predictions[name].answer() for name in request.questions}
         m.QUESTIONS.observe(len(request.questions))
         m.STATE_TOKENS.observe(state_tokens)
         review = []
+        flagged = [name for name in request.questions if name in unfamiliar]
         for name, answer in answers.items():
             confidence = max(predictions[name].distribution())
             m.CONFIDENCE.labels(type=answer.type).observe(confidence)
@@ -221,15 +255,21 @@ class DecisionEngine:
             if confidence < self.cfg.low_confidence_threshold:
                 m.LOW_CONFIDENCE.labels(type=answer.type).inc()
                 review.append(name)
+            if name in unfamiliar:
+                m.UNFAMILIAR.labels(type=answer.type).inc()
         self.drift.export()
-        return DecisionResult(answers, cache_hit, state_tokens, model_ms, review)
+        return DecisionResult(answers, cache_hit, state_tokens, model_ms, review, flagged)
 
     # ------------------------------------------------------------------ logging
 
     def record(
         self, request_id: str, request: DecisionRequest, result: DecisionResult, latency_ms: float
     ) -> None:
-        """Append to the prediction log; queue low-confidence questions for labelling."""
+        """Append to the prediction log; queue low-confidence and unfamiliar questions.
+
+        Confidence alone misses questions the model is confidently wrong about, which is what
+        unfamiliar questions tend to be (docs/EXPERIMENTS.md, E4).
+        """
         state_text = serialize_state(request.state)
         entry = {
             "request_id": request_id,
@@ -241,12 +281,15 @@ class DecisionEngine:
             "answers": {k: v.model_dump() for k, v in result.answers.items()},
             "latency_ms": round(latency_ms, 3),
             "cache_hit": result.cache_hit,
+            "low_confidence": result.review,
+            "unfamiliar": result.unfamiliar,
         }
         targets = []
         if self.cfg.prediction_log:
             targets.append(("predictions", Path(self.cfg.prediction_log), entry))
-        if self.cfg.feedback_queue and result.review:
-            queued = {**entry, "review": result.review, "state": redact(request.state)}
+        to_label = list(dict.fromkeys(result.review + result.unfamiliar))
+        if self.cfg.feedback_queue and to_label:
+            queued = {**entry, "review": to_label, "state": redact(request.state)}
             targets.append(("feedback", Path(self.cfg.feedback_queue), queued))
         # A failed log write must never fail the request it describes: it is reported and
         # counted (decider_log_write_errors_total) instead.

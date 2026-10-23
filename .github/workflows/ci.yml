@@ -117,11 +117,16 @@ jobs:
         run: docker compose -f docker/docker-compose.yml up -d prometheus grafana
       - name: dashboards are provisioned and rules are loaded
         run: |
-          for i in $(seq 1 60); do curl -sf localhost:3000/api/health && break; sleep 2; done
-          dashboards=$(curl -sf -u admin:admin "localhost:3000/api/search?tag=decider" | jq length)
+          # Grafana reports healthy before provisioning has finished: poll the result itself.
+          for i in $(seq 1 60); do
+            dashboards=$(curl -sf -u admin:admin "localhost:3000/api/search?tag=decider" | jq length)
+            test "${dashboards:-0}" -eq 2 && break; sleep 2
+          done
           echo "dashboards: $dashboards"; test "$dashboards" -eq 2
-          for i in $(seq 1 30); do curl -sf localhost:9090/-/ready && break; sleep 2; done
-          groups=$(curl -sf localhost:9090/api/v1/rules | jq '.data.groups | length')
+          for i in $(seq 1 30); do
+            groups=$(curl -sf localhost:9090/api/v1/rules | jq '.data.groups | length')
+            test "${groups:-0}" -eq 2 && break; sleep 2
+          done
           echo "rule groups: $groups"; test "$groups" -eq 2
       - if: failure()
         run: docker compose -f docker/docker-compose.yml logs

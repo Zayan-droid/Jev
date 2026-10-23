@@ -120,6 +120,10 @@ One encoder implementation (`decider.model.encoder`) covers both configurations:
 | attention | global, or global every 3rd layer + ±64 sliding window | global every 3rd layer + ±64 sliding window |
 | positions | RoPE θ=10k | RoPE θ=160k global / 10k local |
 
+The pretrained configuration is not optional: trained from scratch on the same data, the
+`small` configuration is 15 points less accurate in distribution and at chance on unseen
+option sets ([E5](EXPERIMENTS.md#e5-value-of-pretraining)).
+
 ModernBERT-base weights load into this module; `tests/test_pretrained_parity.py` checks the
 hidden states against the `transformers` reference implementation (max abs difference 0.0 on an
 input longer than the sliding window). Using our own module rather than the
@@ -246,10 +250,10 @@ whole records, because questions about the same state are correlated.
 | 1. Core | masks, tree positions, heads, losses, cache; invariance tests; toy task | done |
 | 2. Data v0 + harness | converters, held-out families, evaluation harness, baselines | done; gold set pending (hand labelling) |
 | 3. Model v0.1 | ModernBERT backbone, temperature scaling | done |
-| 4. Synthetic engine | broader programmatic templates (template set v2); teacher-generated states/questions with k-sample soft labels | templates done; teacher next |
+| 4. Synthetic engine | broader programmatic templates (template set v2); teacher-generated states/questions with k-sample soft labels | template set v2 done, no transfer gain at equal steps ([E3](EXPERIMENTS.md#e3-template-diversity-mix-v1-model-v02)); teacher next |
 | 5. Calibration & robustness | consistency losses on unlabelled pairs, per-family calibration analysis | planned |
 | 6. Scale & bake-off | larger encoder vs decoder + LoRA; 8k states; two-stage retrieval for >255 options | planned |
-| 7. Production | dynamic batching, ONNX/TensorRT export, shadow deployment | serving, monitoring, registry, dynamic batching and ONNX export (parity-tested) done; TensorRT and shadow deployment planned |
+| 7. Production | dynamic batching, ONNX/TensorRT export, shadow deployment | serving, monitoring (incl. question familiarity), registry, dynamic batching and ONNX export (parity-tested) done; TensorRT and shadow deployment planned |
 
 ## 9. Changes from v0.1
 

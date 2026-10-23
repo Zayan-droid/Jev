@@ -43,7 +43,9 @@ record's questions or do not sum to one.
 gzipped JSONL file per split and a `manifest.json` (per-file SHA-256, a combined data hash,
 counts by source/family/type, licenses, the build config, the code version, and how many
 records deduplication and leakage removal dropped). Builds are deterministic: rebuilding a
-version gives byte-identical files. `dvc repro` runs the same builds as pipeline stages.
+version gives byte-identical files. `dvc repro` runs the same builds as pipeline stages
+(DVC is in the `pipeline` dependency group: `uv sync --group pipeline`, alongside the extras
+you already use).
 
 ## Sources in `mix-v0` and `mix-v1`
 

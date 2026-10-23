@@ -128,5 +128,7 @@ what this card measured. Details: [EXPERIMENTS.md](EXPERIMENTS.md#e4-question-fa
 v0.2 (`modernbert-mix-v1-c6307c9`, registry v3, `challenger`) is trained on `mix-v1`. On the
 same questions it is 1.1 points more accurate in distribution and 1.3 points less accurate on
 `heldout` (both significant; counting templates improve from 4.5 % to 23.8 %, most other held-out
-families lose 3-7 points). Neither dominates; which becomes `champion` is an owner's decision.
+families lose 3-7 points; a step-matched ablation attributes the in-distribution gain to
+longer training and the held-out loss to the data change). Neither dominates; which becomes
+`champion` is an owner's decision.
 Comparison: [EXPERIMENTS.md](EXPERIMENTS.md#e3-template-diversity-mix-v1-model-v02).

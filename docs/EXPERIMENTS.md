@@ -83,17 +83,43 @@ choice 0.014 → 0.014, score 0.025 → 0.013).
 The hypothesis holds only in part. The targeted failure moved: counting `lookup` questions
 went from 4.5 % to 23.8 %, and held-out `score` questions gained 6 points. Everything else
 held out got worse by 3-7 points, including CLINC150 and inventory questions that the change
-did not touch, so the overall held-out difference is negative and significant. One
-explanation, not tested here, is the longer fit (best step 5,000 vs 3,000): checkpoints are
-selected on in-distribution validation loss, which rewards specialising to the training
-templates.
+did not touch, so the overall held-out difference is negative and significant.
 
-**Decisions.** Neither model dominates, so the choice is a product decision: v0.2 is better on
-in-distribution questions (where automation would be gated) and v0.1 transfers better. v0.2
-passed the release gate and is registered as `challenger`; `champion` stays unassigned until
-an owner promotes one. The README and model card keep describing v0.1. Next: an early-stopping
-signal that sees shifted templates (a validation split built from templates disjoint from both
-training and `heldout`), so selection stops rewarding specialisation.
+**Follow-up: data or training length?** v0.2 was selected at step 5,000 and v0.1 at step
+3,000, so the comparison mixes two changes. `experiment=modernbert-mix-v1-s3000` repeats the
+v0.2 run and stops it at step 3,000 of the same 9,000-step schedule (`train.stop_at_step`; same
+seed and learning rates; validation log loss within 0.007 of the original run at each
+evaluation, the gap GPU non-determinism leaves; step 3,000 again the best). Held-out accuracy on the shared questions:
+
+| family | v0.1 (mix-v0, step 3k) | v0.2 data, step 3k | v0.2 (step 5k) | data effect | longer fit |
+|---|---|---|---|---|---|
+| all | 60.32 | 57.64 | 59.01 | −2.68 * | +1.37 * |
+| arithmetic | 30.03 | 15.15 | 23.32 | −14.88 * | +8.18 * |
+| inventory | 96.00 | 84.53 | 92.00 | −11.47 * | +7.47 * |
+| lookup | 4.46 | 10.81 | 23.78 | +6.35 * | +12.97 * |
+| intent routing (CLINC150) | 70.00 | 68.35 | 65.90 | −1.65 * | −2.45 * |
+| dates | 55.88 | 54.69 | 52.43 | −1.19 | −2.26 * |
+| science QA (SciQ) | 86.00 | 87.60 | 84.80 | +1.60 | −2.80 * |
+
+In distribution, the step-3,000 run matches v0.1 (86.11 vs 86.00 %, +0.11 [−0.30, +0.49]): all of
+v0.2's in-distribution gain comes from the longer fit.
+
+The longer-fit explanation is wrong as the main cause. At equal steps the new templates cost
+2.7 held-out points, mostly on held-out *programmatic* templates (arithmetic −15, inventory
+−11) and helped only the counting family they targeted. What the data did change is when
+overfitting starts: validation log loss bottomed out at step 5,000 instead of 3,000, and
+those extra 2,000 steps bought the in-distribution gain and back part of the held-out loss on
+programmatic templates, while costing 2-3 points on the public held-out datasets. One reading,
+not tested: v0.1 transferred to the held-out programmatic templates partly through fixed
+level wording they share with training, a shortcut the randomised wording removed.
+
+**Decisions.** Template set v2 is not a transfer improvement and should not be sold as one;
+its measurable benefit is a later overfitting point. Neither released model dominates, so the
+choice is a product decision: v0.2 is better on in-distribution questions (where automation
+would be gated) and v0.1 transfers better. v0.2 passed the release gate and is registered as
+`challenger`; `champion` stays unassigned until an owner promotes one. The README and model
+card keep describing v0.1. Programmatic template tweaks have reached diminishing returns for
+transfer; broader, independently written questions (roadmap Phase 4) are the next lever.
 
 ## E4. Question familiarity
 

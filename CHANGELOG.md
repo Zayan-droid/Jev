@@ -25,7 +25,9 @@ All notable changes to this project. The format follows
 - Load testing (`decider-loadtest`) and an experiment log (`docs/EXPERIMENTS.md`) with the
   v0.1 / v0.2 comparison, the familiarity study and serving throughput.
 - Model v0.2 (`mix-v1`), registered as `challenger`: +1.1 points in distribution, −1.3 points
-  held out (paired, both significant).
+  held out (paired, both significant). A step-matched ablation (`train.stop_at_step`) shows the
+  data change alone costs 2.7 held-out points; the in-distribution gain comes from training
+  longer.
 - Request size limits (100k-character states, 2k-character instructions, options and levels).
 - Offline tests for ModernBERT loading (a tiny checkpoint saved by `transformers`) and for the
   Hugging Face tokenizer path; CI smoke-tests the serving container with a named log volume.

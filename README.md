@@ -142,9 +142,12 @@ nothing else. Paired on the questions both versions were evaluated on (record-le
 | heldout counting templates (`lookup`) | 4.46 % | 23.78 % | **+19.32** (+15.95, +22.84) |
 | heldout CLINC150 intents | 70.00 % | 65.90 % | **−4.10** (−5.40, −2.85) |
 
-The targeted failure moved, but most other held-out families lost 3-7 points, so neither
-version dominates: v0.2 is the registry's `challenger`, and promotion is an owner's call.
-Write-up: [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#e3-template-diversity-mix-v1-model-v02).
+The targeted failure moved, but most other held-out families lost 3-7 points. A follow-up run
+of v0.2 stopped at v0.1's step count separates the two changes: the new data alone costs 2.7
+held-out points and gains nothing in distribution, and v0.2's in-distribution gain comes from
+the 2,000 extra steps the more varied data allows before overfitting. Neither version
+dominates: v0.2 is the registry's `challenger`, and promotion is an owner's call. Write-up:
+[docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#e3-template-diversity-mix-v1-model-v02).
 
 **Knowing when not to trust the confidence.** On held-out templates the model is confidently
 wrong, so no threshold on its confidence catches those answers. Every bundle therefore carries

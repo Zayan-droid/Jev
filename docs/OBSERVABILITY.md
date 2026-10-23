@@ -123,6 +123,7 @@ uv run decider-loadtest --data data/processed/mix-v1 --concurrency 1 4 16
 | `decider_questions_per_request`, `decider_state_tokens` | histogram | |
 | `decider_confidence` | histogram | `type` |
 | `decider_low_confidence_total` | counter | `type` |
+| `decider_unfamiliar_total` | counter | `type` |
 | `decider_noul_answers_total` | counter | `answer` |
 | `decider_state_cache_total`, `decider_state_cache_bytes` | counter, gauge | `result` |
 | `decider_confidence_psi` | gauge | `type` |
@@ -140,15 +141,29 @@ server compares a rolling window of live confidences against it with the populat
 index, per question type (`GET /v1/drift`, `decider_confidence_psi`). PSI < 0.1 is stable,
 0.1-0.25 is drifting, > 0.25 should be investigated.
 
+### Unfamiliar questions
+
+Confidence drift misses one failure: on question types it was never trained on, the model can
+be confidently wrong, and its confidence distribution then looks normal. The bundle's
+familiarity detector (`familiarity.npz`, fitted on `calib` at training time) measures how far
+each question's readout features are from the calibration questions. About 5 % of
+in-distribution questions are flagged by design; flagged questions are listed in the response
+(`unfamiliar`), counted in `decider_unfamiliar_total` and queued for labelling. Measured on the
+v0.2 server, test traffic was flagged at 4-5 % and held-out traffic at 42-78 % per type
+([EXPERIMENTS.md](EXPERIMENTS.md#e4-question-familiarity)). The flag describes the population,
+not an individual answer: flagged answers are not reliably less accurate.
+
 ### Logs and the feedback loop
 
 * `logs/predictions.jsonl`: request id, model version, a SHA-256 of the state, the redacted
   state (emails, card numbers, phone numbers and IPs replaced; `--no-state-logging` keeps only
-  the hash), questions, answers, latency, cache hit.
+  the hash), questions, answers, latency, cache hit, and the low-confidence and unfamiliar
+  questions.
 * `data/feedback/queue.jsonl` (`--feedback-queue`): requests with at least one answer whose
   top-label probability, the calibrated chance of being right, is below `--low-confidence`
-  (default 0.6). This is deliberately not the response's `confidence` field, which is an
-  entropy-based score over the whole distribution.
+  (default 0.6), or whose question is unfamiliar. The probability threshold is deliberately
+  not the response's `confidence` field, which is an entropy-based score over the whole
+  distribution.
 * Writing either file never fails a request: errors are logged, counted in
   `decider_log_write_errors_total` and raise the `DeciderLogWritesFailing` alert.
 * `uv run decider-label` walks the queue in the terminal and writes canonical records to
@@ -186,6 +201,7 @@ soon as the inputs shift, without any labels.
 | `DeciderLatencyP95High` | p95 > 250 ms for 10 min | state length histogram; cache hit ratio; device |
 | `DeciderConfidenceDrift` | PSI > 0.25 for 15 min | state length and question mix; sample `predictions.jsonl` |
 | `DeciderLowConfidenceSurge` | > 30 % of answers below threshold | new question types or domains; label the queue |
+| `DeciderUnfamiliarQuestions` | > 20 % of questions unfamiliar for 30 min (~5 % expected) | which clients send new question types; do not trust their confidences; label the queue |
 | `DeciderLogWritesFailing` | any failed write to the prediction log or review queue | disk space; volume permissions |
 | `DeciderTrainingStalled` | trainer up, step unchanged for 10 min | data loader, GPU, deadlock |
 | `DeciderLossSpikes` | > 3 spikes in 10 min | learning rate; a bad data source |

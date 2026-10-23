@@ -4,13 +4,14 @@
 
 | | |
 |---|---|
-| Version | `modernbert-mix-501a502` (MLflow registry: `decider` v2, alias `challenger`) |
+| Version | `modernbert-mix-501a502` (MLflow registry: `decider` v2, release gate passed) |
 | Architecture | ModernBERT-base encoder (150.8 M parameters) in `decider`'s own implementation, with segment-masked packing, tree position ids, level embeddings and three readout heads (`noul`, `choice`, `score`); sibling-option attention in the last 4 layers |
 | Code | commit `501a502` (clean tree) |
 | Data | `mix-v0`, data hash `330653cf66f74d77` (see [DATA.md](DATA.md)) |
 | Training | bf16 autocast, gradient checkpointing, AdamW (encoder 5e-5, heads 1e-3), 500 warmup steps, cosine decay, 8,192-token batches; loss = log score + 0.25·Brier + 0.5·RPS (score) |
 | Selection | best validation log loss over evaluations every 1,000 steps; early stopping (patience 4) ended the run at step 7,000; the released weights are from step 3,000 (~1.1 epochs) |
 | Calibration | temperature per question type, fitted on `calib`: noul 1.207, choice 1.208, score 1.301 (the selected checkpoint was mildly overconfident) |
+| Familiarity | per-type Gaussian over readout features, fitted on `calib` (`familiarity.npz`, added after release with `decider-familiarity --save`) |
 | Hardware | one RTX 3050 Laptop GPU (6 GB), ~5.3k tokens/s, 3 h 4 min to step 7,000 |
 
 ## Intended use
@@ -98,7 +99,8 @@ increase ≤ 0.10, p95 latency ≤ 250 ms.
 1. **New question templates over familiar states.** Counting and range questions phrased as
    `score` in ways not seen in training fail almost completely (4.6 % and 29.9 %) and are
    confidently wrong. Calibration does not transfer: never automate a question type that has
-   not been evaluated.
+   not been evaluated. The familiarity detector flags all of these questions (see below), but
+   flagging is not fixing.
 2. **Score questions** are the weakest type even in distribution (77 %); only about half of
    them can be automated at 95 % accuracy.
 3. **Negation** is consistent in distribution (mean gap 0.07) but far less so on unseen
@@ -110,3 +112,21 @@ increase ≤ 0.10, p95 latency ≤ 250 ms.
 6. **Licences.** AG News, Yelp and SciQ are non-commercial; so is this model.
 7. **No hand-labelled gold set yet**; every number here comes from converted public datasets
    and programmatic tasks.
+
+## Knowing when the confidence is not trustworthy
+
+The bundle's familiarity detector compares each question's readout features with those of the
+calibration questions. About 5 % of in-distribution questions are flagged by design; on the
+`heldout` split, 4.5 % of noul, 58 % of choice and 100 % of score questions are, and the score
+separates test from held-out questions with AUROC 0.87 / 0.96 / 1.00. It does not predict
+individual errors: within a split, flagged answers are about as accurate as the rest. Treat a
+rising unfamiliar share (`decider_unfamiliar_total`) as a sign that traffic has moved away from
+what this card measured. Details: [EXPERIMENTS.md](EXPERIMENTS.md#e4-question-familiarity).
+
+## Successor
+
+v0.2 (`modernbert-mix-v1-c6307c9`, registry v3, `challenger`) is trained on `mix-v1`. On the
+same questions it is 1.1 points more accurate in distribution and 1.3 points less accurate on
+`heldout` (both significant; counting templates improve from 4.5 % to 23.8 %, most other held-out
+families lose 3-7 points). Neither dominates; which becomes `champion` is an owner's decision.
+Comparison: [EXPERIMENTS.md](EXPERIMENTS.md#e3-template-diversity-mix-v1-model-v02).

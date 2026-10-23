@@ -234,8 +234,8 @@ whole records, because questions about the same state are correlated.
 | Registry | MLflow model registry; versions carry gate results as tags; `challenger` on gate pass, `champion` by explicit promotion |
 | Release gate | per-type ECE, accuracy floor, permutation/independence gaps, injection effect, p95 latency |
 | Serving | FastAPI, typed request/response, size limits, state KV cache or dynamic micro-batching (packed rows), CPU Docker image with health checks |
-| Monitoring | Prometheus metrics with bounded labels; confidence drift (PSI vs. training reference); low-confidence rate; alert rules; Grafana serving dashboard |
-| Feedback loop | low-confidence answers queued (PII-redacted) → `decider-label` → `local_sources` of the next data version |
+| Monitoring | Prometheus metrics with bounded labels; confidence drift (PSI vs. training reference); low-confidence rate; share of unfamiliar questions (familiarity detector); alert rules; Grafana serving dashboard |
+| Feedback loop | low-confidence and unfamiliar answers queued (PII-redacted) → `decider-label` → `local_sources` of the next data version |
 | CI | ruff, mypy, pytest (incl. invariance, parity and resume tests), a full smoke pipeline (build → train → eval → serve), the serving container with a named log volume, Prometheus/Grafana provisioning |
 
 ## 8. Roadmap

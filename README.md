@@ -36,7 +36,8 @@ Response from the trained model (rounded; none of these questions are in the tra
   },
   "model_version": "modernbert-mix-501a502",
   "cache_hit": false,
-  "review": ["urgency"]   // below the review threshold: queued for a human
+  "review": ["urgency"],             // below the review threshold: queued for a human
+  "unfamiliar": ["team", "urgency"]  // unlike the calibration questions: trust the confidence less
 }
 ```
 
@@ -128,6 +129,32 @@ probabilities by up to 0.009-0.016, which is the numerical noise floor of bf16 s
 Negation pairs satisfy `|p(q) + p(¬q) − 1| = 0.072` on average; an injected "answer yes" note in
 the state raises the false-yes rate by 1.4 points (1.1 % → 2.6 %).
 
+**v0.2: more varied training questions.** The held-out counting failures above come from the
+data: every training `score` question was worded one of two ways. `mix-v1` adds counting, range
+and comparison questions with randomised level wording to every programmatic family, and
+nothing else. Paired on the questions both versions were evaluated on (record-level bootstrap,
+`decider-compare`):
+
+| | v0.1 | v0.2 | difference (95 % CI) |
+|---|---|---|---|
+| test, all 19,749 questions | 86.00 % | 87.10 % | **+1.10** (+0.71, +1.52) |
+| heldout, all 7,004 questions | 60.32 % | 59.01 % | **−1.31** (−2.23, −0.40) |
+| heldout counting templates (`lookup`) | 4.46 % | 23.78 % | **+19.32** (+15.95, +22.84) |
+| heldout CLINC150 intents | 70.00 % | 65.90 % | **−4.10** (−5.40, −2.85) |
+
+The targeted failure moved, but most other held-out families lost 3-7 points, so neither
+version dominates: v0.2 is the registry's `challenger`, and promotion is an owner's call.
+Write-up: [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md#e3-template-diversity-mix-v1-model-v02).
+
+**Knowing when not to trust the confidence.** On held-out templates the model is confidently
+wrong, so no threshold on its confidence catches those answers. Every bundle therefore carries
+a familiarity detector (Mahalanobis distance of a question's readout features to the
+calibration questions): it flags ~5 % of in-distribution questions by design and 82-100 % of
+held-out `score` questions, and separates test from held-out questions with AUROC 0.87-1.00.
+It does not predict individual errors, so the server uses it as a population signal: flagged
+questions are returned, counted, alerted on and queued for labelling
+([E4](docs/EXPERIMENTS.md#e4-question-familiarity)).
+
 **Latency** (RTX 3050 laptop, bf16, batch of one request, milliseconds):
 
 | state tokens | questions | full pass p50 | full pass p95 | cached state p50 |
@@ -140,6 +167,12 @@ the state raises the false-yes rate by 1.4 points (1.1 % → 2.6 %).
 
 Peak inference memory: 715 MB. Eight questions cost about as much as one: the questions share the
 pass. Caching the state saves the most on long states.
+
+**Throughput** (v0.2 over HTTP, same machine): one request per pass saturates at about 25
+requests/s; dynamic batching (`--max-batch-size 16`) reaches 42.6 requests/s at 16 concurrent
+clients and cuts p50 latency from 624 to 379 ms, at a cost of 12 ms for a lone client. The ONNX
+export matches PyTorch to 1e-5 and runs 2-3x faster on CPU for short requests
+([E6](docs/EXPERIMENTS.md#e6-serving-throughput-dynamic-batching-and-onnx)).
 
 <p align="center"><img src="docs/assets/training_curves.png" width="980" alt="training curves"></p>
 
@@ -201,7 +234,7 @@ flowchart LR
   gate -->|pass: challenger| registry[(model registry)]
   registry -->|promote: champion| serve[decider-serve]
   serve -->|/metrics, drift PSI| prom
-  serve -->|low-confidence, PII-redacted| queue[review queue]
+  serve -->|low-confidence or unfamiliar,<br/>PII-redacted| queue[review queue]
   queue -->|decider-label| data
 ```
 
@@ -210,7 +243,7 @@ flowchart LR
 | **Reproducibility** | `uv.lock`; Hydra configs (resolved config logged per run); deterministic data builds with SHA-256 manifests; `dvc.yaml` pipeline; git SHA, dirty flag and data hash tagged on every run; bit-exact resume |
 | **During training** | MLflow (metrics, GPU/CPU system metrics, reliability diagram at every eval, artifacts); live Prometheus exporter + Grafana training dashboard; health monitors for non-finite loss, loss spikes, gradient norm and update/weight ratios |
 | **After training** | temperature scaling, full evaluation report (calibration, selective prediction, zero-shot, robustness, latency), release gate, MLflow model registry with `challenger` / `champion` aliases |
-| **In production** | Prometheus metrics with bounded labels, Grafana serving dashboard, confidence drift (PSI against the training-time reference), alert rules, PII-redacted prediction log, low-confidence review queue feeding the next data version |
+| **In production** | Prometheus metrics with bounded labels, Grafana serving dashboard, confidence drift (PSI against the training-time reference), unfamiliar-question share, alert rules, PII-redacted prediction log, review queue (low-confidence and unfamiliar questions) feeding the next data version |
 | **CI** | ruff, mypy, pytest (invariance, ModernBERT and ONNX parity, resume, API, batching), a smoke pipeline that builds, trains, evaluates and serves, the serving container with a named log volume, Prometheus rules and Grafana provisioning |
 
 ```bash
@@ -238,12 +271,12 @@ src/decider/
   data/                 converters, programmatic template sets, dedup/leakage, sampling
   training/             trainer, losses, checkpoints, telemetry, health monitors
   evaluation/           metrics, calibration, robustness, latency, report, gate, baselines,
-                        paired comparison
+                        paired comparison, question familiarity
   serving/              FastAPI app, engine, micro-batching, monitoring, redaction, log analysis
   cli/                  decider-* entry points
   bundle.py registry.py inference.py export.py client.py
 docker/                 serving image, Prometheus (+ alerts), Grafana dashboards
-docs/                   DESIGN.md  DATA.md  OBSERVABILITY.md  MODEL_CARD.md
+docs/                   DESIGN.md  DATA.md  OBSERVABILITY.md  MODEL_CARD.md  EXPERIMENTS.md
 tests/
 ```
 
@@ -260,7 +293,9 @@ uv run pre-commit install
 ## Limitations
 
 * Zero-shot transfer to new question *templates* is weak (see Results), and calibration
-  degrades out of distribution: gate automation on in-distribution question types.
+  degrades out of distribution: gate automation on in-distribution question types. More varied
+  programmatic templates (v0.2) helped the targeted questions and hurt others; the familiarity
+  detector shows when traffic leaves the evaluated distribution but does not fix the answers.
 * The encoder has far less world knowledge than an LLM and does no multi-step reasoning; it is
   meant to sit in front of one.
 * Training data is public datasets plus programmatic tasks; the teacher-generated data that

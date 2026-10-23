@@ -2,8 +2,9 @@
 
 Two sources of work:
 
-* the serving review queue (default): low-confidence production requests, shown with the
-  model's answer; labels go to ``data/feedback/labeled.jsonl`` and into the next training set;
+* the serving review queue (default): low-confidence and unfamiliar production requests, shown
+  with the model's answer; labels go to ``data/feedback/labeled.jsonl`` and into the next
+  training set;
 * ``--sample-from <dataset dir>``: a family-stratified sample of an existing split, shown
   without any label or model answer so nothing anchors the judgement; with ``--split gold``
   this builds the hand-labelled evaluation set ``data/gold/gold.jsonl``.

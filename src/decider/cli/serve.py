@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> None:
         "--feedback-queue",
         type=Path,
         default=Path("data/feedback/queue.jsonl"),
-        help="where low-confidence requests are queued for decider-label",
+        help="where low-confidence and unfamiliar requests are queued for decider-label",
     )
     p.add_argument(
         "--no-state-logging",

@@ -18,6 +18,14 @@ All notable changes to this project. The format follows
   the graph, all shapes are dynamic, and logits match PyTorch to ~1e-7 (tested on packed and
   empty batches).
 - Paired model comparison (`decider-compare`) with a record-level bootstrap.
+- Question familiarity detector (`decider-familiarity`): Mahalanobis distance of readout
+  features to the calibration questions, fitted at training time and stored in the bundle. The
+  server returns flagged questions (`unfamiliar`), counts them (`decider_unfamiliar_total`),
+  queues them for labelling and alerts when their share stays above 20 %.
+- Load testing (`decider-loadtest`) and an experiment log (`docs/EXPERIMENTS.md`) with the
+  v0.1 / v0.2 comparison, the familiarity study and serving throughput.
+- Model v0.2 (`mix-v1`), registered as `challenger`: +1.1 points in distribution, −1.3 points
+  held out (paired, both significant).
 - Request size limits (100k-character states, 2k-character instructions, options and levels).
 - Offline tests for ModernBERT loading (a tiny checkpoint saved by `transformers`) and for the
   Hugging Face tokenizer path; CI smoke-tests the serving container with a named log volume.

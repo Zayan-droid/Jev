@@ -1,0 +1,12 @@
+# @package _global_
+# E3 follow-up (docs/EXPERIMENTS.md): the v0.2 run stopped at step 3,000 of the same 9,000-step
+# schedule, where v0.1's released checkpoint comes from. Separates the effect of the data
+# from that of the longer fit. Not registered: it is an ablation, not a release candidate.
+defaults:
+  - modernbert-mix-v1
+
+name: modernbert-mix-v1-s3000
+train:
+  stop_at_step: 3000
+register:
+  enabled: false

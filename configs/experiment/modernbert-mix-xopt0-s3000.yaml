@@ -1,0 +1,10 @@
+# @package _global_
+# E7 follow-up: the no-cross-option run stopped at step 3,000 of the same schedule, where v0.1's
+# released checkpoint comes from. The full run was selected at step 5,000, which confounds the
+# architecture with training length (as in E3). Not registered: it is an ablation.
+defaults:
+  - modernbert-mix-xopt0
+
+name: modernbert-mix-xopt0-s3000
+train:
+  stop_at_step: 3000

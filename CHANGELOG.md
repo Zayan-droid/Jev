@@ -31,11 +31,17 @@ All notable changes to this project. The format follows
 - Pretraining ablation (`experiment=small-mix`, 34M parameters from scratch): 14.7 points
   behind v0.1 in distribution and 34.9 held out, at chance on unseen option sets.
 - Shadow deployment (`decider-serve --shadow-bundle / --shadow-model-uri`): a candidate answers
-  copies of live requests on a background thread without delaying or changing responses;
-  agreement metrics, `GET /v1/shadow`, a shadow log, the `DeciderShadowFallingBehind` alert and
+  copies of live requests on a background thread without changing responses, by default only
+  while no live request is in flight (`--shadow-always` lifts this) and optionally on a fixed
+  share of traffic (`--shadow-fraction`); agreement metrics, `GET /v1/shadow`, a shadow log, the `DeciderShadowFallingBehind` alert and
   a dashboard row. `decider-shadow` joins the log with labels for a paired accuracy comparison;
   `decider-loadtest --tag-ids` and `DeciderClient.send(request, request_id)` make replayed
   traffic joinable.
+- `decider-loadtest --rate` sends requests on a fixed schedule (open loop) instead of back to
+  back.
+- Cross-option ablation (`experiment=modernbert-mix-xopt0`, and `-s3000` step-matched): no
+  in-distribution difference, −2.3 points on held-out `choice`, +5.3 on held-out `score`; the
+  four cross-option layers stay.
 - Request size limits (100k-character states, 2k-character instructions, options and levels).
 - Offline tests for ModernBERT loading (a tiny checkpoint saved by `transformers`) and for the
   Hugging Face tokenizer path; CI smoke-tests the serving container with a named log volume.

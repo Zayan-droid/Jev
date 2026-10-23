@@ -285,7 +285,10 @@ Found while implementing and testing v0.1:
 
 ## 10. Open questions
 
-* How many cross-option layers? (ablation: 0, 2, 4 on choice-heavy families)
+* How many cross-option layers? 0 vs 4 is measured ([E7](EXPERIMENTS.md#e7-cross-option-attention)): no difference in distribution,
+  +2.3 points held out on `choice` with 4; 1 and 2 are untested.
+* Checkpoint selection that sees shifted questions: selecting on in-distribution validation
+  loss trades held-out accuracy for in-distribution accuracy (E3, E7).
 * Encoder vs decoder backbone (Phase 6).
 * Teacher choice and its terms of use; k-sample votes vs. logprobs for soft labels (Phase 4).
 * Calibration targets per family: what ECE is good enough to automate?

@@ -1,0 +1,15 @@
+# @package _global_
+# E7 (docs/EXPERIMENTS.md): v0.1's recipe with no cross-option layers, so each option is read
+# against the state and question but never against the other options. Measures what letting
+# options see each other is worth. Patience 2 instead of 4: v0.1's best checkpoint came at
+# step 3,000 and the later evaluations only cost time. Not registered: it is an ablation.
+defaults:
+  - modernbert-mix
+
+name: modernbert-mix-xopt0
+model:
+  cross_option_layers: 0
+train:
+  early_stopping_patience: 2
+register:
+  enabled: false

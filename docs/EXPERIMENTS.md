@@ -241,3 +241,118 @@ linearly with concurrency; batching raises throughput 1.7x at concurrency 16 and
 40 %, but costs 12 ms at concurrency 1 (the wait window, and no state cache). Batching stays
 off by default and is the setting for concurrent traffic. For CPU-only serving, onnxruntime is
 2-3x faster on short requests and about equal on long ones.
+
+## E7. Cross-option attention
+
+**Question.** The last four encoder layers let the options of a question attend to each other
+(`cross_option_layers: 4`). What is that worth, compared with reading each option only against
+the state and the question?
+
+**Setup.** `experiment=modernbert-mix-xopt0`: v0.1's recipe and data with `cross_option_layers:
+0`. The mask is the only change: the parameter count and compute are identical. The run's
+validation log loss was best at step 5,000 (0.209; v0.1: 0.198 at step 3,000), so the released
+checkpoints differ in training length as well, the confound found in E3. A rerun stopped at step
+3,000 of the same schedule (`experiment=modernbert-mix-xopt0-s3000`; validation log loss within
+0.02 of the first run at step 1,000 and within 0.002 at steps 2,000 and 3,000) gives the
+step-matched comparison. Paired on the shared questions (`decider-compare`, record-level
+bootstrap).
+
+**Result.** Accuracy, v0.1 → no cross-option layers, both at step 3,000:
+
+| split | group | v0.1 | no cross-option | difference (95 % CI) |
+|---|---|---|---|---|
+| test | all 19,749 questions | 86.00 | 85.99 | −0.01 (−0.33, +0.32) |
+| heldout | all 7,004 questions | 60.32 | 59.58 | −0.74 (−1.62, +0.10) |
+| heldout | choice | 73.69 | 71.37 | −2.32 (−3.18, −1.46) |
+| heldout | score | 17.29 | 22.54 | +5.25 (+2.76, +7.67) |
+| heldout | noul | 65.57 | 63.09 | −2.48 (−5.07, +0.16) |
+| heldout | CLINC150 intents | 70.00 | 67.65 | −2.35 * |
+| heldout | inventory | 96.00 | 90.80 | −5.20 * |
+| heldout | arithmetic | 30.03 | 23.73 | −6.30 * |
+| heldout | counting templates (`lookup`) | 4.46 | 21.35 | +16.89 * |
+
+The same run continued to its selected step 5,000: +1.15 (+0.74, +1.56) in distribution and
+−1.73 (−2.75, −0.74) held out against its own step 3,000, with held-out noul −8.4.
+
+* In distribution, letting options see each other is worth nothing measurable.
+* Held out, it is worth 2.3 points on `choice` questions: when the option set is new (20
+  CLINC150 intents, unseen inventory questions), comparing options helps.
+* It costs 5 points on `score`, almost all on the held-out counting templates, where v0.1 is
+  below chance (E5). Score levels are options too, and the shortcut v0.1 learned there appears to
+  rely on levels reading each other. One reading, not tested: attention between the level
+  wordings lets the model latch onto the fixed wording, which E3 already pointed at.
+* noul questions have no options, so the mask cannot affect them directly; their 2.5-point
+  held-out difference is the order of run-to-run variation on held-out families. Family
+  differences of 2-3 points should be read with that in mind; the 5-17 point ones stand.
+* Training length again explains the in-distribution gain of the longer run, and again costs
+  transfer, now with the data held fixed. Two experiments (E3, E7) agree that selecting
+  checkpoints on in-distribution validation loss trades held-out accuracy for in-distribution
+  accuracy.
+
+**Decisions.** Keep four cross-option layers: they cost no parameters or compute and are the
+better choice for unseen option sets, the case that matters most for zero-shot use. The score
+shortcut is a data problem to fix with independently written questions (roadmap Phase 4), not
+with the mask. Checkpoint selection should see shifted questions: the next training change is a
+validation split built from templates disjoint from training and `heldout`.
+
+## E8. Shadow deployment
+
+**Question.** Can a candidate be evaluated on live traffic without affecting it, and does the
+live comparison agree with the offline one (E3: v0.2 +1.1 points in distribution, −1.3 held
+out)?
+
+**Setup.** `decider-serve --bundle <v0.1> --shadow-bundle <v0.2>` on the RTX 3050, both bf16.
+Traffic replayed from the shared question set with `decider-loadtest --tag-ids`, so the shadow
+log can be joined with the labels (`decider-shadow --labels`). Throughput: 600 test requests,
+closed loop (each client sends its next request when the last returns). Live comparison:
+3,600 test then 3,600 held-out requests at a steady 8 requests/s (`--rate 8`, open loop, about a
+quarter of capacity).
+
+**Result: cost.** The first implementation ran the shadow whenever a request was queued. The
+response never waited for it, but the shadow shares the hardware:
+
+| shadow | 1 client: req/s | p50 ms | 8 clients: req/s | p50 ms | requests shadowed |
+|---|---|---|---|---|---|
+| none | 22.4 | 41.7 | 29.8 | 265.7 | |
+| GPU, whenever queued | 16.3 | 54.4 | 17.2 | 459.5 | 100 % |
+| GPU, live idle only (default) | 16.3 | 54.1 | **29.9** | 267.5 | 71 % |
+| GPU, idle only, 25 % sampled | 20.0 | 46.4 | 30.1 | 265.5 | 25 % |
+| CPU, idle only | 12.7 | 78.3 | 28.8 | 275.3 | 13 % |
+
+Run whenever queued, the shadow took 42 % of peak throughput on the GPU, and 61 % on the CPU,
+where it competes with the server's own threads (first measurement: 11.7 requests/s). The
+default now runs it only while no live request is in flight. Under load that protects
+throughput completely, and the shadow covers less traffic instead: with two clients sending
+back to back it covered 7 % of 14,000 requests, and `DeciderShadowFallingBehind` would fire. A
+single back-to-back client is the worst case for latency: the server is idle between every
+two requests, so each request finds a shadow pass running and waits for it (+12 ms p50).
+Sampling scales that cost down. At 8 requests/s the shadow answered all 7,200 requests and
+dropped none. Live latency on that test traffic was p50 44.2 ms / p95 75.5 ms, against
+44.6 / 97.2 ms for the same schedule without a shadow: no measurable cost (the p95 gap, in the
+shadow's favour, is run-to-run noise).
+
+**Result: the comparison.** Live v0.1 vs shadow v0.2 on the same requests at 8 requests/s:
+
+| traffic | labelled questions | v0.1 | v0.2 | difference (95 % CI) | offline (E3) |
+|---|---|---|---|---|---|
+| test | 4,371 | 86.57 | 88.10 | +1.53 (+0.64, +2.43) | +1.10 |
+| heldout | 3,135 | 60.73 | 59.43 | −1.31 (−2.63, +0.06) | −1.31 |
+
+Where the answers differed on test traffic, v0.2 was the one that was right 217 times and v0.1
+150 times. Agreement needs no labels and moved with the traffic: on score questions it fell
+from about 78 % to 27 % within five minutes of held-out traffic starting, while the
+confidence-based signals moved too (E4):
+
+![shadow agreement by type during test, then held-out traffic](assets/shadow_agreement.png)
+
+An earlier run of 3,000 requests with both models on the CPU gave the same directions (+0.9 test,
+−2.5 held out) but too few test questions (1,970) for the in-distribution gain to be
+significant: with these effect sizes, a shadow needs a few thousand labelled questions per
+traffic type before it can decide a promotion.
+
+**Decisions.** The shadow runs in the server's idle time by default; `--shadow-always` is for a
+shadow on hardware the live model does not use, and `--shadow-fraction` bounds the low-load
+latency cost. The live comparison reproduces the offline one, so it can stand in for it on
+production traffic once that traffic is labelled (`decider-label`). For v0.1 vs v0.2 it adds no
+new information: the trade-off between in-distribution and held-out accuracy is the same, and
+promotion stays an owner's decision.

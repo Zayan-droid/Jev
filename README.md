@@ -107,6 +107,11 @@ held-out ones against 60.3 %: on unseen option sets it is at chance (7 % on 20 C
 intents). The pretrained backbone, not the packing, is what makes zero-shot work
 ([E5](docs/EXPERIMENTS.md#e5-value-of-pretraining)).
 
+**Letting options see each other.** Removing the cross-option layers (same parameters and
+compute) changes nothing in distribution at equal training steps, costs 2.3 points on held-out
+`choice` questions and gains 5 on held-out `score`, where v0.1's counting shortcut appears to
+depend on it. The layers stay ([E7](docs/EXPERIMENTS.md#e7-cross-option-attention)).
+
 **Full test split** (17,329 records, 27,441 questions; 95 % bootstrap intervals in the report):
 
 | type | accuracy | log loss | ECE before / after temperature scaling | answerable at 95 % accuracy |
@@ -230,9 +235,11 @@ Serving options worth knowing:
   against PyTorch (install with `--extra export`).
 * `decider-compare <eval dir A> <eval dir B>` compares two model versions on the questions both
   were evaluated on, with paired bootstrap intervals.
-* `--shadow-model-uri models:/decider@challenger` runs a candidate on copies of live requests
-  without touching the responses; `decider-shadow` reports agreement and, given labels, which
-  model is right where they differ.
+* `--shadow-model-uri models:/decider@challenger` runs a candidate on copies of live requests,
+  in the server's idle time, without touching the responses; `decider-shadow` reports agreement
+  and, given labels, which model is right where they differ. Run live at 8 requests/s, it
+  reproduced the offline v0.1 / v0.2 comparison
+  ([E8](docs/EXPERIMENTS.md#e8-shadow-deployment)).
 
 ## MLOps and observability
 

@@ -114,6 +114,12 @@ answered automatically while keeping 95 % accuracy, by abstaining on the least c
 
 <p align="center"><img src="docs/assets/reliability_test.png" width="860" alt="reliability diagrams on the test split"></p>
 
+<p align="center"><img src="docs/assets/training_curves.png" width="980" alt="training curves"></p>
+
+Validation accuracy kept rising after step 3000 while log loss and ECE got worse: the model
+became overconfident in its second epoch. Selecting checkpoints on log loss (a proper scoring
+rule), not accuracy, is what keeps that out of the released model.
+
 **Zero-shot (`heldout`).** Unseen *datasets* transfer: SciQ (an unseen task family) 86.0 %,
 CLINC150 (an unseen intent set, 20 options) 70.0 %. Unseen *question templates* over familiar
 programmatic states mostly do not, especially counting questions posed as `score`
@@ -129,10 +135,10 @@ probabilities by up to 0.009-0.016, which is the numerical noise floor of bf16 s
 Negation pairs satisfy `|p(q) + p(¬q) − 1| = 0.072` on average; an injected "answer yes" note in
 the state raises the false-yes rate by 1.4 points (1.1 % → 2.6 %).
 
-**v0.2: more varied training questions.** The held-out counting failures above come from the
-data: every training `score` question was worded one of two ways. `mix-v1` adds counting, range
-and comparison questions with randomised level wording to every programmatic family, and
-nothing else. Paired on the questions both versions were evaluated on (record-level bootstrap,
+**v0.2: more varied training questions.** The held-out counting failures above looked like a
+data problem: every training `score` question was worded one of two ways. `mix-v1` adds
+counting, range and comparison questions with randomised level wording to every programmatic
+family, and nothing else. Paired on the questions both versions were evaluated on (record-level bootstrap,
 `decider-compare`):
 
 | | v0.1 | v0.2 | difference (95 % CI) |
@@ -176,12 +182,6 @@ requests/s; dynamic batching (`--max-batch-size 16`) reaches 42.6 requests/s at 
 clients and cuts p50 latency from 624 to 379 ms, at a cost of 12 ms for a lone client. The ONNX
 export matches PyTorch to 1e-5 and runs 2-3x faster on CPU for short requests
 ([E6](docs/EXPERIMENTS.md#e6-serving-throughput-dynamic-batching-and-onnx)).
-
-<p align="center"><img src="docs/assets/training_curves.png" width="980" alt="training curves"></p>
-
-Validation accuracy kept rising after step 3000 while log loss and ECE got worse: the model
-became overconfident in its second epoch. Selecting checkpoints on log loss (a proper scoring
-rule), not accuracy, is what keeps that out of the released model.
 
 ## Quickstart
 

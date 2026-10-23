@@ -101,6 +101,12 @@ baselines are calibrated on `calib` the same way):
 | zero-shot NLI cross-encoder | heldout | 54.6 | 52.4 | **34.6** | 1.437 | 0.096 |
 | embedding similarity | heldout | 60.4 | 62.8 | 15.2 | 1.209 | **0.089** |
 
+**Without pretraining.** The same architecture trained from scratch on the same data (34M
+parameters) answers 71.3 % of the shared test questions against 86.0 %, and 25.4 % of the
+held-out ones against 60.3 %: on unseen option sets it is at chance (7 % on 20 CLINC150
+intents). The pretrained backbone, not the packing, is what makes zero-shot work
+([E5](docs/EXPERIMENTS.md#e5-value-of-pretraining)).
+
 **Full test split** (17,329 records, 27,441 questions; 95 % bootstrap intervals in the report):
 
 | type | accuracy | log loss | ECE before / after temperature scaling | answerable at 95 % accuracy |

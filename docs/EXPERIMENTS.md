@@ -164,11 +164,51 @@ as a *population* signal: flagged questions are returned in the response, counte
 labelling with the low-confidence ones. It is not a per-answer correctness score, and
 confidence remains what automation is gated on.
 
-## E5. Value of pretraining (planned)
+## E5. Value of pretraining
 
-`experiment=small-mix`: a 34M-parameter model (8 layers, width 384, ModernBERT's layout and
-tokenizer) trained from scratch on `mix-v0` with the E1 recipe, to put a number on what
-ModernBERT's pretraining contributes.
+**Question.** How much of v0.1's quality comes from ModernBERT's pretraining rather than from
+the architecture and the data?
+
+**Setup.** `experiment=small-mix`: a 34.0M-parameter encoder (8 layers, width 384, ModernBERT's
+attention layout and tokenizer) trained from scratch on `mix-v0`, with the E1 recipe adapted
+to a from-scratch model (16k-token batches, LR 6e-4, early stopping on validation log loss).
+Validation log loss was best at step 5,000 (3.7 epochs) and early stopping ended the run at
+9,000; 68 minutes in all at ~38k tokens/s, against ~5.3k for ModernBERT-base. Compared with
+v0.1 on the shared questions (test: public datasets only) and on the full `mix-v0` reports.
+
+**Result.** Accuracy, from scratch → ModernBERT-base:
+
+| split | group | from scratch | ModernBERT | difference (95 % CI) |
+|---|---|---|---|---|
+| test | all 19,749 shared questions | 71.32 | 86.00 | +14.68 (+14.02, +15.36) |
+| test | entailment (MNLI) | 50.91 | 85.82 | +34.92 |
+| test | reading QA (BoolQ) | 57.07 | 77.00 | +19.93 |
+| test | topic (AG News) | 90.65 | 94.22 | +3.57 |
+| test | programmatic families (full report) | 76-88 | 97-100 | |
+| heldout | all 7,004 shared questions | 25.40 | 60.32 | +34.92 (+33.46, +36.40) |
+| heldout | CLINC150 intents (20 options) | 7.25 | 70.00 | +62.75 |
+| heldout | SciQ (4 options) | 28.20 | 86.00 | +57.80 |
+| heldout | counting templates (`lookup`) | 22.16 | 4.46 | −17.70 |
+
+In-distribution ECE after temperature scaling: noul 0.044, choice 0.010, score 0.050, against
+v0.1's 0.006 / 0.014 / 0.025. The small model answers a 130-token state in 10 ms (p50) whether
+it carries 1 or 32 questions, 1.7-3.5x faster than ModernBERT-base, with 293 MB peak memory
+instead of 715 MB.
+
+* Pretraining is most of the model. It is worth 15 points in distribution, most where reading
+  matters (entailment +35, reading QA +20) and least where keywords suffice (topic +4).
+* Zero-shot transfer is almost entirely pretraining. From scratch, unseen option sets are at
+  chance: 7 % on 20 CLINC150 intents (5 % chance), 28 % on 4 SciQ answers (25 %). The packed
+  architecture alone does not make a model read option descriptions it was never trained on.
+* The one reversal is informative. On held-out counting templates the from-scratch model is
+  right 22 % of the time and ModernBERT 4.5 %, below the rate of guessing among even ten levels:
+  the fine-tuned pretrained model has learned a systematic wrong answer, not merely failed to
+  learn the right one. This fits E3's reading that fine-tuning picks up shortcuts from fixed
+  template wording.
+
+**Decisions.** The from-scratch model is not a release candidate; it stays as the reference
+point that shows what the pretrained backbone buys. Model size is not where to cut cost:
+dynamic batching and ONNX (E6) are.
 
 ## E6. Serving throughput: dynamic batching and ONNX
 

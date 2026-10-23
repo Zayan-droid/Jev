@@ -28,6 +28,8 @@ All notable changes to this project. The format follows
   held out (paired, both significant). A step-matched ablation (`train.stop_at_step`) shows the
   data change alone costs 2.7 held-out points; the in-distribution gain comes from training
   longer.
+- Pretraining ablation (`experiment=small-mix`, 34M parameters from scratch): 14.7 points
+  behind v0.1 in distribution and 34.9 held out, at chance on unseen option sets.
 - Request size limits (100k-character states, 2k-character instructions, options and levels).
 - Offline tests for ModernBERT loading (a tiny checkpoint saved by `transformers`) and for the
   Hugging Face tokenizer path; CI smoke-tests the serving container with a named log volume.

@@ -38,7 +38,16 @@ _QUIET_DEFAULTS = {
 def prepare_environment() -> None:
     for key, value in _QUIET_DEFAULTS.items():
         os.environ.setdefault(key, value)
-    for noisy in ("httpx", "httpx2", "httpcore", "urllib3", "alembic", "huggingface_hub"):
+    noisy_loggers = (
+        "httpx",
+        "httpx2",
+        "httpcore",
+        "urllib3",
+        "alembic",
+        "huggingface_hub",
+        "onnx_ir",
+    )
+    for noisy in noisy_loggers:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

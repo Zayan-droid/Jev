@@ -297,6 +297,48 @@ def test_unfamiliar_questions_are_flagged_and_queued(trained: Path, tmp_path: Pa
     assert queued["unfamiliar"] == ["red"]
 
 
+def test_shadow_model_sees_live_traffic_without_changing_it(trained: Path, tmp_path: Path) -> None:
+    from prometheus_client import REGISTRY
+
+    from decider.serving.shadow import ShadowConfig, ShadowRunner
+
+    cfg = EngineConfig(
+        bundle=str(trained / "bundle"), device="cpu", prediction_log=None, feedback_queue=None
+    )
+    log_path = tmp_path / "shadow.jsonl"
+    # The same bundle in shadow: every answer must agree, which tests the plumbing end to end.
+    shadow = ShadowRunner.from_config(
+        ShadowConfig(bundle=str(trained / "bundle"), device="cpu", log=str(log_path))
+    )
+    plain = TestClient(create_app(cfg, DecisionEngine(cfg)))
+    shadowed = TestClient(create_app(cfg, DecisionEngine(cfg), shadow=shadow))
+    observed = "decider_questions_per_request_count"
+    before = REGISTRY.get_sample_value(observed) or 0.0
+    try:
+        for i, request in enumerate(_requests()[:3]):
+            body = request.model_dump(mode="json")
+            a = plain.post("/v1/decide", json=body)
+            b = shadowed.post("/v1/decide", json=body, headers={"x-request-id": f"r{i}"})
+            assert a.json()["answers"] == b.json()["answers"], "the shadow never changes answers"
+        shadow.wait()
+    finally:
+        shadow.close()
+    assert REGISTRY.get_sample_value(observed) - before == 6, "the shadow emits no live metrics"
+
+    summary = shadowed.get("/v1/shadow").json()
+    assert summary["requests"] == {"ok": 3, "error": 0, "dropped": 0}
+    assert {t: v["agreement"] for t, v in summary["types"].items()} == {
+        "choice": 1.0,
+        "noul": 1.0,
+        "score": 1.0,
+    }
+    assert shadowed.get("/v1/model").json()["shadow"] == shadow.version
+    assert plain.get("/v1/shadow").status_code == 404
+    entries = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert [e["request_id"] for e in entries] == ["r0", "r1", "r2"]
+    assert all(q["distance"] == 0.0 for e in entries for q in e["questions"].values())
+
+
 def test_micro_batcher_groups_concurrent_requests(trained: Path) -> None:
     import threading
 

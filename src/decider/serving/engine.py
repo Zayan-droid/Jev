@@ -40,6 +40,9 @@ class EngineConfig:
     # Dynamic batching (see decider.serving.batching); 1 disables it and keeps the state cache.
     max_batch_size: int = 1
     max_wait_ms: float = 5.0
+    # False for a shadow model (decider.serving.shadow): its answers must not show up in the
+    # live model's metrics or drift.
+    emit_metrics: bool = True
 
 
 class LRUStateCache:
@@ -109,7 +112,8 @@ class DecisionEngine:
         familiarity_path = Path(cfg.bundle) / "familiarity.npz"
         self.familiarity = Familiarity.load(familiarity_path) if familiarity_path.exists() else None
         self._log_lock = threading.Lock()
-        m.MODEL_INFO.labels(version=self.version).set(1)
+        if cfg.emit_metrics:
+            m.MODEL_INFO.labels(version=self.version).set(1)
         log.info("loaded %s on %s", self.version, self.device)
 
     @property
@@ -160,9 +164,10 @@ class DecisionEngine:
             model_ms = (time.perf_counter() - start) * 1000
             unfamiliar = self._unfamiliar(batch, flat, index, 1)[0]
         predictions = split_predictions(batch, logits, probs, 1)[0]
-        m.CACHE_EVENTS.labels(result="hit" if hit else "miss").inc()
-        m.CACHE_BYTES.set(self.cache.bytes)
-        m.MODEL_LATENCY.labels(cache="hit" if hit else "miss").observe(model_ms / 1000)
+        if self.cfg.emit_metrics:
+            m.CACHE_EVENTS.labels(result="hit" if hit else "miss").inc()
+            m.CACHE_BYTES.set(self.cache.bytes)
+            m.MODEL_LATENCY.labels(cache="hit" if hit else "miss").observe(model_ms / 1000)
         state_tokens = len(tokenized.state)
         return self._result(request, predictions, state_tokens, model_ms, hit, unfamiliar)
 
@@ -205,8 +210,9 @@ class DecisionEngine:
                 torch.cuda.synchronize()
             model_ms = (time.perf_counter() - start) * 1000
             unfamiliar = self._unfamiliar(batch, flat, batch.index, len(examples))
-        m.BATCH_SIZE.observe(len(examples))
-        m.MODEL_LATENCY.labels(cache="batched").observe(model_ms / 1000)
+        if self.cfg.emit_metrics:
+            m.BATCH_SIZE.observe(len(examples))
+            m.MODEL_LATENCY.labels(cache="batched").observe(model_ms / 1000)
         per_example = split_predictions(batch, logits, probs, len(examples))
         for j, ((i, example), predictions) in enumerate(zip(accepted, per_example, strict=True)):
             state_tokens = len(example.request.state)
@@ -242,23 +248,33 @@ class DecisionEngine:
         unfamiliar: set[str],
     ) -> DecisionResult:
         answers = {name: predictions[name].answer() for name in request.questions}
-        m.QUESTIONS.observe(len(request.questions))
-        m.STATE_TOKENS.observe(state_tokens)
-        review = []
+        confidence = {name: float(max(predictions[name].distribution())) for name in answers}
+        review = [n for n in answers if confidence[n] < self.cfg.low_confidence_threshold]
         flagged = [name for name in request.questions if name in unfamiliar]
+        if self.cfg.emit_metrics:
+            self._observe(answers, confidence, review, flagged, state_tokens)
+        return DecisionResult(answers, cache_hit, state_tokens, model_ms, review, flagged)
+
+    def _observe(
+        self,
+        answers: dict[str, Answer],
+        confidence: dict[str, float],
+        review: list[str],
+        flagged: list[str],
+        state_tokens: int,
+    ) -> None:
+        m.QUESTIONS.observe(len(answers))
+        m.STATE_TOKENS.observe(state_tokens)
         for name, answer in answers.items():
-            confidence = max(predictions[name].distribution())
-            m.CONFIDENCE.labels(type=answer.type).observe(confidence)
-            self.drift.observe(answer.type, confidence)
+            m.CONFIDENCE.labels(type=answer.type).observe(confidence[name])
+            self.drift.observe(answer.type, confidence[name])
             if answer.type == "noul":
                 m.NOUL_YES.labels(answer="yes" if answer.answer else "no").inc()
-            if confidence < self.cfg.low_confidence_threshold:
+            if name in review:
                 m.LOW_CONFIDENCE.labels(type=answer.type).inc()
-                review.append(name)
-            if name in unfamiliar:
+            if name in flagged:
                 m.UNFAMILIAR.labels(type=answer.type).inc()
         self.drift.export()
-        return DecisionResult(answers, cache_hit, state_tokens, model_ms, review, flagged)
 
     # ------------------------------------------------------------------ logging
 

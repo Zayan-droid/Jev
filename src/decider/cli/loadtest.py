@@ -5,6 +5,9 @@
 Each worker thread sends requests back to back; the report gives throughput, latency
 percentiles (end to end, as the client sees them) and errors. Run it against servers started
 with and without ``--max-batch-size`` to measure dynamic batching on your hardware.
+
+``--tag-ids`` sends each record's id as the request id, so the server's logs can be joined
+with the labels afterwards (``decider-shadow --labels``).
 """
 
 from __future__ import annotations
@@ -20,7 +23,13 @@ from typing import Any
 from decider.cli._common import configure_logging
 
 
-def run_load(url: str, requests: list[Any], concurrency: int, warmup: int = 5) -> dict[str, Any]:
+def run_load(
+    url: str,
+    requests: list[Any],
+    concurrency: int,
+    warmup: int = 5,
+    request_ids: list[str] | None = None,
+) -> dict[str, Any]:
     import numpy as np
 
     from decider.client import DeciderClient, DeciderError
@@ -41,9 +50,10 @@ def run_load(url: str, requests: list[Any], concurrency: int, warmup: int = 5) -
             if i is None:
                 return
             request = requests[i]
+            request_id = request_ids[i] if request_ids else None
             start = time.perf_counter()
             try:
-                client.decide(request.state, **request.questions)
+                client.send(request, request_id)
             except (DeciderError, OSError) as exc:
                 with lock:
                     errors.append(type(exc).__name__)
@@ -80,6 +90,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--requests", type=int, default=500)
     p.add_argument("--concurrency", type=int, nargs="+", default=[1, 4, 16])
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--tag-ids", action="store_true", help="send record ids as request ids")
     p.add_argument("--out", type=Path, help="write the results as JSON")
     args = p.parse_args(argv)
 
@@ -90,8 +101,10 @@ def main(argv: list[str] | None = None) -> None:
 
     records = list(iter_records(split_path(args.data, args.split)))
     rng = random.Random(args.seed)
-    sample = [rng.choice(records).request() for _ in range(args.requests)]
-    results = [run_load(args.url, sample, c) for c in args.concurrency]
+    chosen = [rng.choice(records) for _ in range(args.requests)]
+    sample = [r.request() for r in chosen]
+    ids = [r.id for r in chosen] if args.tag_ids else None
+    results = [run_load(args.url, sample, c, request_ids=ids) for c in args.concurrency]
 
     table = Table(title=f"{args.url}: {args.requests} requests from {args.data.name}/{args.split}")
     columns = ("concurrency", "requests_per_s", "p50_ms", "p95_ms", "p99_ms", "errors")

@@ -43,6 +43,14 @@ groups:
         labels: {severity: info}
         annotations:
           summary: Over 20% of {{ $labels.type }} questions are unlike the calibration data (about 5% expected); their confidences are less trustworthy.
+      - alert: DeciderShadowFallingBehind
+        expr: |
+          sum(rate(decider_shadow_requests_total{status=~"dropped|error"}[10m]))
+            / clamp_min(sum(rate(decider_shadow_requests_total[10m])), 1e-9) > 0.05
+        for: 10m
+        labels: {severity: info}
+        annotations:
+          summary: Over 5% of requests are dropped by or fail in the shadow model, so its comparison covers a biased sample of traffic. Live answers are unaffected.
 
   - name: decider-training
     rules:

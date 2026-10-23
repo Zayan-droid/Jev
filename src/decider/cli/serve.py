@@ -1,4 +1,10 @@
-"""``decider-serve``: serve a bundle (or a registered model) over HTTP."""
+"""``decider-serve``: serve a bundle (or a registered model) over HTTP.
+
+    decider-serve --model-uri models:/decider@champion --shadow-model-uri models:/decider@challenger
+
+With a shadow model, every answered request is also answered by the shadow on a background
+thread, without changing or delaying the response; ``decider-shadow`` reports the comparison.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +20,7 @@ log = logging.getLogger(__name__)
 
 def main(argv: list[str] | None = None) -> None:
     configure_logging()
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     src = p.add_mutually_exclusive_group()
     src.add_argument("--bundle", type=Path, default=os.environ.get("DECIDER_BUNDLE"))
     src.add_argument("--model-uri", help="e.g. models:/decider@champion")
@@ -49,6 +55,24 @@ def main(argv: list[str] | None = None) -> None:
         default=Path("data/feedback/queue.jsonl"),
         help="where low-confidence and unfamiliar requests are queued for decider-label",
     )
+    shadow = p.add_mutually_exclusive_group()
+    shadow.add_argument(
+        "--shadow-bundle",
+        type=Path,
+        default=os.environ.get("DECIDER_SHADOW_BUNDLE"),
+        help="a candidate to run in shadow",
+    )
+    shadow.add_argument("--shadow-model-uri", help="e.g. models:/decider@challenger")
+    p.add_argument(
+        "--shadow-device",
+        help="device for the shadow model (default: --device; 'cpu' keeps it off the GPU)",
+    )
+    p.add_argument(
+        "--shadow-queue",
+        type=int,
+        default=256,
+        help="requests that may wait for the shadow before new ones are dropped",
+    )
     p.add_argument(
         "--no-state-logging",
         action="store_true",
@@ -62,13 +86,22 @@ def main(argv: list[str] | None = None) -> None:
 
     from decider.serving.app import create_app
     from decider.serving.engine import EngineConfig
+    from decider.serving.shadow import ShadowConfig
 
     bundle = args.bundle
     if args.model_uri:
-        from decider.registry import download
-
-        name = args.model_uri.split("/")[-1].replace("@", "-")
-        bundle = download(args.model_uri, Path("bundles") / name, args.tracking_uri)
+        bundle = _download(args.model_uri, args.tracking_uri)
+    shadow_bundle = args.shadow_bundle
+    if args.shadow_model_uri:
+        shadow_bundle = _download(args.shadow_model_uri, args.tracking_uri)
+    shadow_cfg = None
+    if shadow_bundle:
+        shadow_cfg = ShadowConfig(
+            bundle=str(shadow_bundle),
+            device=args.shadow_device or args.device,
+            log=str(args.log_dir / "shadow.jsonl"),
+            max_queue=args.shadow_queue,
+        )
     cfg = EngineConfig(
         bundle=str(bundle),
         device=args.device,
@@ -80,7 +113,15 @@ def main(argv: list[str] | None = None) -> None:
         max_batch_size=args.max_batch_size,
         max_wait_ms=args.max_wait_ms,
     )
-    uvicorn.run(create_app(cfg), host=args.host, port=args.port, log_config=None)
+    app = create_app(cfg, shadow_cfg=shadow_cfg)
+    uvicorn.run(app, host=args.host, port=args.port, log_config=None)
+
+
+def _download(model_uri: str, tracking_uri: str) -> Path:
+    from decider.registry import download
+
+    name = model_uri.split("/")[-1].replace("@", "-")
+    return download(model_uri, Path("bundles") / name, tracking_uri)
 
 
 if __name__ == "__main__":

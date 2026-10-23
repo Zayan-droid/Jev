@@ -5,6 +5,7 @@ Endpoints:
 * ``POST /v1/decide`` - answer the questions of one request
 * ``GET  /v1/model``  - model version, calibration and evaluation summary
 * ``GET  /v1/drift``  - live confidence drift against the training-time reference
+* ``GET  /v1/shadow`` - agreement with the shadow model, when one is configured
 * ``GET  /healthz``   - liveness; ``GET /readyz`` - readiness (model loaded)
 * ``GET  /metrics``   - Prometheus
 """
@@ -27,21 +28,31 @@ from decider.schema import DecisionRequest, DecisionResponse
 from decider.serving import monitoring as m
 from decider.serving.batching import MicroBatcher
 from decider.serving.engine import DecisionEngine, EngineConfig
+from decider.serving.shadow import ShadowConfig, ShadowRunner
 
 log = logging.getLogger("decider.access")
 
 
-def create_app(cfg: EngineConfig, engine: DecisionEngine | None = None) -> FastAPI:
-    state: dict[str, Any] = {"engine": engine, "batcher": None}
+def create_app(
+    cfg: EngineConfig,
+    engine: DecisionEngine | None = None,
+    shadow_cfg: ShadowConfig | None = None,
+    shadow: ShadowRunner | None = None,
+) -> FastAPI:
+    state: dict[str, Any] = {"engine": engine, "batcher": None, "shadow": shadow}
     batcher_lock = threading.Lock()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if state["engine"] is None:
             state["engine"] = DecisionEngine(cfg)
+        if state["shadow"] is None and shadow_cfg is not None:
+            state["shadow"] = ShadowRunner.from_config(shadow_cfg)
         yield
         if state["batcher"] is not None:
             state["batcher"].close()
+        if state["shadow"] is not None:
+            state["shadow"].close()
 
     app = FastAPI(title="decider", version="0.1.0", lifespan=lifespan)
     app.mount("/metrics", make_asgi_app())
@@ -95,11 +106,19 @@ def create_app(cfg: EngineConfig, engine: DecisionEngine | None = None) -> FastA
 
     @app.get("/v1/model")
     def model_info() -> dict[str, Any]:
-        return get_engine().info()
+        shadow = state["shadow"]
+        return {**get_engine().info(), "shadow": shadow.version if shadow else None}
 
     @app.get("/v1/drift")
     def drift() -> dict[str, Any]:
         return get_engine().drift.export()
+
+    @app.get("/v1/shadow")
+    def shadow_summary() -> dict[str, Any]:
+        if state["shadow"] is None:
+            raise HTTPException(status_code=404, detail="no shadow model configured")
+        summary: dict[str, Any] = state["shadow"].summary()
+        return summary
 
     # A plain `def` endpoint runs in FastAPI's thread pool, keeping the event loop free while
     # the model runs. Requests either go through the micro-batcher or straight to the engine,
@@ -122,6 +141,8 @@ def create_app(cfg: EngineConfig, engine: DecisionEngine | None = None) -> FastA
         m.REQUESTS.labels(status="ok").inc()
         request_id = request.state.request_id
         engine.record(request_id, body, result, latency_ms)
+        if state["shadow"] is not None:
+            state["shadow"].submit(request_id, body, engine.version, result.answers)
         return DecisionResponse(
             answers=result.answers,
             model_version=engine.version,

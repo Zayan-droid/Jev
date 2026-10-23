@@ -128,7 +128,12 @@ uv run decider-loadtest --data data/processed/mix-v1 --concurrency 1 4 16
 | `decider_state_cache_total`, `decider_state_cache_bytes` | counter, gauge | `result` |
 | `decider_confidence_psi` | gauge | `type` |
 | `decider_model_info` | gauge | `version` |
-| `decider_log_write_errors_total` | counter | `sink` = predictions / feedback |
+| `decider_log_write_errors_total` | counter | `sink` = predictions / feedback / shadow |
+| `decider_shadow_model_info` | gauge | `version` |
+| `decider_shadow_requests_total` | counter | `status` = ok / error / dropped |
+| `decider_shadow_answers_total` | counter | `type`, `agree` = yes / no |
+| `decider_shadow_distance` | histogram | `type`; total variation distance between the two distributions |
+| `decider_shadow_model_latency_seconds` | histogram | |
 
 Labels are bounded (question *type*, never question name or option), so cardinality does not
 grow with traffic.
@@ -152,6 +157,36 @@ in-distribution questions are flagged by design; flagged questions are listed in
 v0.2 server, test traffic was flagged at 4-5 % and held-out traffic at 42-78 % per type
 ([EXPERIMENTS.md](EXPERIMENTS.md#e4-question-familiarity)). The flag describes the population,
 not an individual answer: flagged answers are not reliably less accurate.
+
+### Shadow deployment
+
+A candidate can answer live traffic before it serves any of it:
+
+```bash
+uv run decider-serve --bundle <live bundle> --shadow-bundle <candidate bundle>
+uv run decider-serve --model-uri models:/decider@champion --shadow-model-uri models:/decider@challenger
+```
+
+Every answered request is copied to the shadow model on a background thread. The response
+never waits for it and never changes. When the shadow falls behind, new requests are dropped
+rather than queued without bound (`--shadow-queue`, default 256), and shadow failures are
+logged, not raised. `--shadow-device cpu` keeps the shadow off the serving GPU. Its answers
+are kept out of the live metrics and drift.
+
+Per question, the server counts whether the two models give the same top answer
+(`decider_shadow_answers_total`, `GET /v1/shadow`) and how far apart their distributions are,
+and appends both distributions to `logs/shadow.jsonl`, keyed by request id. Agreement cannot
+say which model is right; labels can. `decider-shadow` joins the log with any labelled records
+whose id was the request id, which is what `decider-loadtest --tag-ids` sends, or with
+production requests labelled later:
+
+```bash
+uv run decider-shadow --log logs/shadow.jsonl --labels data/processed/compare-v0-v1
+```
+
+It prints agreement per type, then the paired accuracy difference on the same live questions
+(record-level bootstrap, as in `decider-compare`) and, where the answers differ, how often each
+model was the one that was right.
 
 ### Logs and the feedback loop
 
@@ -206,5 +241,6 @@ test reference has almost no mass; PSI grows without bound there, so read it as 
 | `DeciderLowConfidenceSurge` | > 30 % of answers below threshold | new question types or domains; label the queue |
 | `DeciderUnfamiliarQuestions` | > 20 % of questions unfamiliar for 30 min (~5 % expected) | which clients send new question types; do not trust their confidences; label the queue |
 | `DeciderLogWritesFailing` | any failed write to the prediction log or review queue | disk space; volume permissions |
+| `DeciderShadowFallingBehind` | > 5 % of shadow requests dropped or failed for 10 min | shadow device and load; `--shadow-queue`; the comparison covers a biased sample until fixed |
 | `DeciderTrainingStalled` | trainer up, step unchanged for 10 min | data loader, GPU, deadlock |
 | `DeciderLossSpikes` | > 3 spikes in 10 min | learning rate; a bad data source |

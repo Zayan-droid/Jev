@@ -63,6 +63,7 @@ decider-compare = "decider.cli.compare:main"
 decider-export = "decider.cli.export:main"
 decider-loadtest = "decider.cli.loadtest:main"
 decider-familiarity = "decider.cli.familiarity:main"
+decider-shadow = "decider.cli.shadow:main"
 
 [dependency-groups]
 dev = [

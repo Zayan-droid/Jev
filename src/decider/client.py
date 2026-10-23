@@ -57,13 +57,19 @@ class DeciderClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
-    def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        request_id: str | None = None,
+    ) -> Any:
         data = json.dumps(body).encode() if body is not None else None
+        headers = {"content-type": "application/json"}
+        if request_id is not None:
+            headers["x-request-id"] = request_id
         request = urllib.request.Request(
-            self.base_url + path,
-            data=data,
-            method=method,
-            headers={"content-type": "application/json"},
+            self.base_url + path, data=data, method=method, headers=headers
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
@@ -73,8 +79,12 @@ class DeciderClient:
             raise DeciderError(exc.code, detail) from None
 
     def decide(self, state: State, **questions: Question) -> DecisionResponse:
-        request = DecisionRequest(state=state, questions=questions)
-        payload = self._request("POST", "/v1/decide", request.model_dump(mode="json"))
+        return self.send(DecisionRequest(state=state, questions=questions))
+
+    def send(self, request: DecisionRequest, request_id: str | None = None) -> DecisionResponse:
+        """``request_id`` is echoed back and keys the server's logs (default: a random id)."""
+        body = request.model_dump(mode="json")
+        payload = self._request("POST", "/v1/decide", body, request_id)
         return DecisionResponse.model_validate(payload)
 
     def model(self) -> dict[str, Any]:

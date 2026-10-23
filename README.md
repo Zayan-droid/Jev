@@ -230,6 +230,9 @@ Serving options worth knowing:
   against PyTorch (install with `--extra export`).
 * `decider-compare <eval dir A> <eval dir B>` compares two model versions on the questions both
   were evaluated on, with paired bootstrap intervals.
+* `--shadow-model-uri models:/decider@challenger` runs a candidate on copies of live requests
+  without touching the responses; `decider-shadow` reports agreement and, given labels, which
+  model is right where they differ.
 
 ## MLOps and observability
 
@@ -242,6 +245,7 @@ flowchart LR
   train -->|temperature scaling + evaluation| gate{release gate}
   gate -->|pass: challenger| registry[(model registry)]
   registry -->|promote: champion| serve[decider-serve]
+  registry -.->|challenger in shadow| serve
   serve -->|/metrics, drift PSI| prom
   serve -->|low-confidence or unfamiliar,<br/>PII-redacted| queue[review queue]
   queue -->|decider-label| data
@@ -252,7 +256,7 @@ flowchart LR
 | **Reproducibility** | `uv.lock`; Hydra configs (resolved config logged per run); deterministic data builds with SHA-256 manifests; `dvc.yaml` pipeline; git SHA, dirty flag and data hash tagged on every run; bit-exact resume |
 | **During training** | MLflow (metrics, GPU/CPU system metrics, reliability diagram at every eval, artifacts); live Prometheus exporter + Grafana training dashboard; health monitors for non-finite loss, loss spikes, gradient norm and update/weight ratios |
 | **After training** | temperature scaling, full evaluation report (calibration, selective prediction, zero-shot, robustness, latency), release gate, MLflow model registry with `challenger` / `champion` aliases |
-| **In production** | Prometheus metrics with bounded labels, Grafana serving dashboard, confidence drift (PSI against the training-time reference), unfamiliar-question share, alert rules, PII-redacted prediction log, review queue (low-confidence and unfamiliar questions) feeding the next data version |
+| **In production** | Prometheus metrics with bounded labels, Grafana serving dashboard, confidence drift (PSI against the training-time reference), unfamiliar-question share, alert rules, PII-redacted prediction log, review queue (low-confidence and unfamiliar questions) feeding the next data version, shadow deployment of the `challenger` with a labelled paired comparison |
 | **CI** | ruff, mypy, pytest (invariance, ModernBERT and ONNX parity, resume, API, batching), a smoke pipeline that builds, trains, evaluates and serves, the serving container with a named log volume, Prometheus rules and Grafana provisioning |
 
 ```bash
@@ -282,7 +286,8 @@ src/decider/
   training/             trainer, losses, checkpoints, telemetry, health monitors
   evaluation/           metrics, calibration, robustness, latency, report, gate, baselines,
                         paired comparison, question familiarity
-  serving/              FastAPI app, engine, micro-batching, monitoring, redaction, log analysis
+  serving/              FastAPI app, engine, micro-batching, shadow model, monitoring,
+                        redaction, log analysis
   cli/                  decider-* entry points
   bundle.py registry.py inference.py export.py client.py
 docker/                 serving image, Prometheus (+ alerts), Grafana dashboards

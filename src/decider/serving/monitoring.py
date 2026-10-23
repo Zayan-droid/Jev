@@ -65,8 +65,30 @@ PSI = Gauge("decider_confidence_psi", "PSI of live vs reference confidence", ["t
 MODEL_INFO = Gauge("decider_model_info", "Loaded model", ["version"])
 LOG_WRITE_ERRORS = Counter(
     "decider_log_write_errors_total",
-    "Failed writes to the prediction log or review queue",
+    "Failed writes to the prediction log, review queue or shadow log",
     ["sink"],
+)
+SHADOW_INFO = Gauge("decider_shadow_model_info", "Model answering in shadow", ["version"])
+SHADOW_REQUESTS = Counter(
+    "decider_shadow_requests_total",
+    "Requests handed to the shadow model: answered, failed, or dropped because it fell behind",
+    ["status"],
+)
+SHADOW_ANSWERS = Counter(
+    "decider_shadow_answers_total",
+    "Shadow answers compared with the live model's: same top answer or not",
+    ["type", "agree"],
+)
+SHADOW_DISTANCE = Histogram(
+    "decider_shadow_distance",
+    "Total variation distance between the live and shadow answer distributions",
+    ["type"],
+    buckets=(0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0),
+)
+SHADOW_LATENCY = Histogram(
+    "decider_shadow_model_latency_seconds",
+    "Shadow model forward time",
+    buckets=(0.005, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.075, 0.1, 0.25, 0.5, 1.0),
 )
 
 # Create every bounded label value up front, so series exist at zero before the first event
@@ -80,12 +102,17 @@ for _path in ("hit", "miss", "batched"):
     MODEL_LATENCY.labels(cache=_path)
 for _answer in ("yes", "no"):
     NOUL_YES.labels(answer=_answer)
-for _sink in ("predictions", "feedback"):
+for _sink in ("predictions", "feedback", "shadow"):
     LOG_WRITE_ERRORS.labels(sink=_sink)
+for _status in ("ok", "error", "dropped"):
+    SHADOW_REQUESTS.labels(status=_status)
 for _type in TYPES:
     CONFIDENCE.labels(type=_type)
     LOW_CONFIDENCE.labels(type=_type)
     UNFAMILIAR.labels(type=_type)
+    SHADOW_DISTANCE.labels(type=_type)
+    for _agree in ("yes", "no"):
+        SHADOW_ANSWERS.labels(type=_type, agree=_agree)
 
 
 def psi(expected: np.ndarray, actual: np.ndarray, eps: float = 1e-4) -> float:

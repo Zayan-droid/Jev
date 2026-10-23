@@ -187,9 +187,12 @@ Training dashboard during a run (here a short run of the tiny model on `toy-v1`)
 
 ![Grafana training dashboard](assets/grafana_training.png)
 
-Serving dashboard while replaying test-split traffic and then held-out traffic: the
-confidence-drift panel crosses the 0.25 PSI threshold and the low-confidence share rises as
-soon as the inputs shift, without any labels.
+Serving dashboard (v0.2, GPU) during 15 minutes of test-split traffic and then 15 minutes of
+held-out traffic at 8 requests/s. Without any labels, PSI crosses 0.25 for every type, the
+low-confidence share rises from 5-20 % to 35-50 %, and the unfamiliar share from ~5 % to 50-80 %.
+The noul PSI reaches 10 because held-out noul answers sit at 0.5-0.6 confidence, where the
+test reference has almost no mass; PSI grows without bound there, so read it as "far past
+0.25", not as a magnitude.
 
 ![Grafana serving dashboard](assets/grafana_serving.png)
 

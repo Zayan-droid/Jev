@@ -251,9 +251,10 @@ uv run poe mlflow                                   # http://127.0.0.1:5000
 docker compose -f docker/docker-compose.yml up -d   # Grafana http://localhost:3000, Prometheus :9090
 ```
 
-The serving dashboard while replaying test traffic and then held-out traffic: confidence drift
-(PSI against the training-time reference) and the low-confidence share rise as soon as the
-inputs shift, before any labels exist.
+The serving dashboard (v0.2 on the GPU) during 15 minutes of test traffic followed by 15 minutes
+of held-out traffic at 8 requests/s: confidence drift (PSI against the training-time
+reference), the low-confidence share and the unfamiliar share all rise as soon as the inputs
+shift, before any labels exist. The unfamiliar share sits at the designed ~5 % on test traffic.
 
 <p align="center"><img src="docs/assets/grafana_serving.png" width="900" alt="Grafana serving dashboard"></p>
 

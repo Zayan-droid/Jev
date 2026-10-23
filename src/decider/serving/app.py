@@ -18,7 +18,7 @@ import threading
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -127,9 +127,11 @@ def create_app(
     def decide(body: DecisionRequest, request: Request) -> DecisionResponse:
         engine = get_engine()
         batcher = get_batcher()
+        shadow = state["shadow"]
         start = time.perf_counter()
         try:
-            result = batcher.submit(body) if batcher is not None else engine.decide(body)
+            with shadow.live() if shadow is not None else nullcontext():
+                result = batcher.submit(body) if batcher is not None else engine.decide(body)
         except ValueError as exc:
             m.REQUESTS.labels(status="rejected").inc()
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -141,8 +143,8 @@ def create_app(
         m.REQUESTS.labels(status="ok").inc()
         request_id = request.state.request_id
         engine.record(request_id, body, result, latency_ms)
-        if state["shadow"] is not None:
-            state["shadow"].submit(request_id, body, engine.version, result.answers)
+        if shadow is not None:
+            shadow.submit(request_id, body, engine.version, result.answers)
         return DecisionResponse(
             answers=result.answers,
             model_version=engine.version,

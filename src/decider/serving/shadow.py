@@ -1,10 +1,16 @@
 """Shadow deployment: a candidate model answers live traffic without affecting it.
 
-Every request the live model answers is also handed to the shadow model on a background thread.
-The response never waits for it and never changes: when the shadow falls behind, requests are
-dropped (and counted), and a shadow failure is logged, not raised. Per question, the two answers
-are compared, counted in Prometheus (agreement per question type) and appended to a shadow log
-keyed by request id.
+Every request the live model answers (or a fixed fraction of them, chosen by request id) is also
+handed to the shadow model on a background thread. The response never waits for it and never
+changes: when the shadow falls behind, requests are dropped (and counted), and a shadow failure
+is logged, not raised. Per question, the two answers are compared, counted in Prometheus
+(agreement per question type) and appended to a shadow log keyed by request id.
+
+Not waiting is not enough. On a shared GPU the shadow's forward passes slow the live ones, and on
+the CPU they take the cores the server needs (docs/EXPERIMENTS.md, E8). So by default the shadow
+only runs while no live request is in flight: it uses spare capacity, and under saturation it
+drops requests instead of taking capacity from live traffic. A live request that arrives during
+a shadow pass still waits for that one pass to finish.
 
 Agreement alone cannot say which model is right. ``decider-shadow`` joins the log with labels
 (records whose id was sent as the request id, e.g. by ``decider-loadtest --tag-ids``, or
@@ -14,13 +20,15 @@ questions: the evidence for promoting the shadow, or for not doing so.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import queue
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -42,6 +50,8 @@ class ShadowConfig:
     log: str | None = "logs/shadow.jsonl"
     max_queue: int = 256  # requests waiting for the shadow; beyond this they are dropped
     cache_max_bytes: int = 128 * 2**20
+    fraction: float = 1.0  # share of requests shadowed, chosen by a hash of the request id
+    idle_only: bool = True  # run only while no live request is in flight
 
 
 # ---------------------------------------------------------------------------- comparison
@@ -87,12 +97,24 @@ class ShadowRunner:
     """Answers copies of live requests with a second engine on a background thread."""
 
     def __init__(
-        self, engine: DecisionEngine, log_path: str | None = None, max_queue: int = 256
+        self,
+        engine: DecisionEngine,
+        log_path: str | None = None,
+        max_queue: int = 256,
+        fraction: float = 1.0,
+        idle_only: bool = True,
     ) -> None:
         if engine.cfg.emit_metrics:
             raise ValueError("a shadow engine must not emit live metrics (emit_metrics=False)")
+        if not 0.0 < fraction <= 1.0:
+            raise ValueError("fraction must be in (0, 1]")
         self.engine = engine
         self.log_path = Path(log_path) if log_path else None
+        self.fraction = fraction
+        self.idle_only = idle_only
+        self._live = 0
+        self._idle = threading.Event()
+        self._idle.set()
         self._queue: queue.Queue[tuple[str, DecisionRequest, str, dict[str, Answer]]] = queue.Queue(
             maxsize=max_queue
         )
@@ -117,11 +139,32 @@ class ShadowRunner:
                 emit_metrics=False,
             )
         )
-        return cls(engine, cfg.log, cfg.max_queue)
+        return cls(engine, cfg.log, cfg.max_queue, cfg.fraction, cfg.idle_only)
 
     @property
     def version(self) -> str:
         return self.engine.version
+
+    @contextmanager
+    def live(self) -> Iterator[None]:
+        """Wrap each live forward pass: the shadow waits while any is in flight."""
+        with self._lock:
+            self._live += 1
+            self._idle.clear()
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._live -= 1
+                if self._live == 0:
+                    self._idle.set()
+
+    def sampled(self, request_id: str) -> bool:
+        """Deterministic in the request id, so replayed traffic shadows the same requests."""
+        if self.fraction >= 1.0:
+            return True
+        digest = hashlib.sha256(request_id.encode()).digest()
+        return int.from_bytes(digest[:8], "big") / 2**64 < self.fraction
 
     def submit(
         self,
@@ -130,7 +173,10 @@ class ShadowRunner:
         primary_version: str,
         primary: dict[str, Answer],
     ) -> bool:
-        """Queue a request the live model answered; never blocks. False if it was dropped."""
+        """Queue a request the live model answered; never blocks. False if it was not queued:
+        outside the sampled fraction (not counted), or dropped because the queue is full."""
+        if not self.sampled(request_id):
+            return False
         try:
             self._queue.put_nowait((request_id, request, primary_version, primary))
         except queue.Full:
@@ -166,6 +212,9 @@ class ShadowRunner:
             except queue.Empty:
                 continue
             try:
+                if self.idle_only:
+                    while not self._idle.wait(0.05) and not self._stop.is_set():
+                        pass
                 self._handle(*item)
             except Exception:  # a shadow failure must never reach the live path
                 log.exception("shadow model failed on a request")

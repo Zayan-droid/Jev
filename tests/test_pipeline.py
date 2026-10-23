@@ -412,6 +412,10 @@ def test_load_test_against_a_live_server(trained: Path) -> None:
         result = run_load(f"http://127.0.0.1:{port}", _requests()[:3] * 4, concurrency=3, warmup=1)
         assert result["errors"] == 0 and result["requests"] == 12
         assert result["requests_per_s"] > 0 and result["p50_ms"] <= result["p99_ms"]
+        paced = run_load(
+            f"http://127.0.0.1:{port}", _requests()[:3] * 4, concurrency=3, warmup=0, rate=20
+        )
+        assert paced["errors"] == 0 and paced["seconds"] >= 11 / 20, "open loop keeps the schedule"
     finally:
         server.should_exit = True
         thread.join(timeout=10)

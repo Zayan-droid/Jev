@@ -168,10 +168,21 @@ uv run decider-serve --model-uri models:/decider@champion --shadow-model-uri mod
 ```
 
 Every answered request is copied to the shadow model on a background thread. The response
-never waits for it and never changes. When the shadow falls behind, new requests are dropped
-rather than queued without bound (`--shadow-queue`, default 256), and shadow failures are
-logged, not raised. `--shadow-device cpu` keeps the shadow off the serving GPU. Its answers
-are kept out of the live metrics and drift.
+never waits for it and never changes, and the shadow's answers are kept out of the live metrics
+and drift. Not waiting is not the same as costing nothing: the shadow shares the hardware. Run
+without restraint on the same GPU it cut peak live throughput by 42 %, and on the CPU it took
+the cores the server needs and cut throughput by 61 %
+([E8](EXPERIMENTS.md#e8-shadow-deployment)). So by default the shadow runs only while no live
+request is in flight, using spare capacity. Under saturation it drops requests instead
+(counted, and alerted on above 5 %), and the comparison then covers less traffic. The relevant
+options:
+
+* `--shadow-fraction 0.25` shadows a fixed share of requests, chosen by a hash of the request
+  id, so a replay shadows the same requests;
+* `--shadow-queue` (default 256) bounds how many requests may wait for the shadow;
+* `--shadow-device` puts the shadow on another device;
+* `--shadow-always` lifts the idle-only rule, for a shadow on hardware the live model does not
+  use.
 
 Per question, the server counts whether the two models give the same top answer
 (`decider_shadow_answers_total`, `GET /v1/shadow`) and how far apart their distributions are,

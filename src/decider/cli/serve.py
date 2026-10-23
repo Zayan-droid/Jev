@@ -2,8 +2,9 @@
 
     decider-serve --model-uri models:/decider@champion --shadow-model-uri models:/decider@challenger
 
-With a shadow model, every answered request is also answered by the shadow on a background
-thread, without changing or delaying the response; ``decider-shadow`` reports the comparison.
+With a shadow model, answered requests are also answered by the shadow on a background thread,
+without changing the response; by default only while no live request is in flight, so it uses
+spare capacity. ``decider-shadow`` reports the comparison.
 """
 
 from __future__ import annotations
@@ -68,6 +69,17 @@ def main(argv: list[str] | None = None) -> None:
         help="device for the shadow model (default: --device; 'cpu' keeps it off the GPU)",
     )
     p.add_argument(
+        "--shadow-fraction",
+        type=float,
+        default=1.0,
+        help="share of requests to shadow, chosen by a hash of the request id",
+    )
+    p.add_argument(
+        "--shadow-always",
+        action="store_true",
+        help="run the shadow even while live requests are in flight (costs live throughput)",
+    )
+    p.add_argument(
         "--shadow-queue",
         type=int,
         default=256,
@@ -101,6 +113,8 @@ def main(argv: list[str] | None = None) -> None:
             device=args.shadow_device or args.device,
             log=str(args.log_dir / "shadow.jsonl"),
             max_queue=args.shadow_queue,
+            fraction=args.shadow_fraction,
+            idle_only=not args.shadow_always,
         )
     cfg = EngineConfig(
         bundle=str(bundle),

@@ -151,3 +151,31 @@ def test_runner_refuses_an_engine_that_emits_live_metrics() -> None:
     engine.cfg.emit_metrics = True
     with pytest.raises(ValueError, match="emit_metrics"):
         ShadowRunner(engine)  # type: ignore[arg-type]
+
+
+def test_runner_waits_for_live_requests_to_finish() -> None:
+    runner = ShadowRunner(_FakeEngine(0.9))  # type: ignore[arg-type]
+    try:
+        with runner.live():
+            runner.submit("r0", _REQUEST, "live", _LIVE)
+            threading.Event().wait(0.3)
+            assert runner.summary()["requests"]["ok"] == 0, "the shadow ran during a live pass"
+        runner.wait()
+        assert runner.summary()["requests"]["ok"] == 1
+    finally:
+        runner.close()
+
+
+def test_sampling_is_deterministic_in_the_request_id() -> None:
+    runner = ShadowRunner(_FakeEngine(0.9), fraction=0.25)  # type: ignore[arg-type]
+    try:
+        ids = [f"r{i}" for i in range(2000)]
+        chosen = [i for i in ids if runner.sampled(i)]
+        assert 0.2 < len(chosen) / len(ids) < 0.3
+        assert chosen == [i for i in ids if runner.sampled(i)]
+        assert not runner.submit(next(i for i in ids if i not in chosen), _REQUEST, "live", _LIVE)
+        assert runner.summary()["requests"]["dropped"] == 0, "sampled-out requests are not drops"
+    finally:
+        runner.close()
+    with pytest.raises(ValueError, match="fraction"):
+        ShadowRunner(_FakeEngine(0.9), fraction=0.0)  # type: ignore[arg-type]

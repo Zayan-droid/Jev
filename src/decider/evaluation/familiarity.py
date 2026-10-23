@@ -176,7 +176,9 @@ def _bucket(record_id: str) -> float:
 
 def _mahalanobis(x: np.ndarray, mean: np.ndarray, precision: np.ndarray) -> np.ndarray:
     d = x - mean
-    return np.sqrt(np.einsum("ij,jk,ik->i", d, precision, d).clip(min=0.0))
+    # (d @ P) * d, not a three-operand einsum: it runs in the request path, and BLAS is ~3x
+    # faster for a request's worth of questions.
+    return np.sqrt(((d @ precision) * d).sum(axis=1).clip(min=0.0))
 
 
 def auroc(negatives: np.ndarray, positives: np.ndarray) -> float:

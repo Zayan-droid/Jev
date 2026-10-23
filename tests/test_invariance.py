@@ -11,6 +11,7 @@ import pytest
 import torch
 
 from decider.model import DeciderModel
+from decider.model.decider import readout_features
 from decider.packing import Example, RequestEncoder, collate
 from decider.schema import DecisionRequest
 from tests.conftest import LIMITS, encode, make_model, sample_request
@@ -149,5 +150,19 @@ def test_cached_state_matches_full_forward(model: DeciderModel, encoder: Request
         full = model(batch)
     cache = model.encode_state(ex.request.state)
     cached = model.forward_cached(cache, batch)
+    for t in full:
+        torch.testing.assert_close(full[t], cached[t], atol=ATOL, rtol=0)
+
+
+def test_cached_state_yields_the_same_features(
+    model: DeciderModel, encoder: RequestEncoder
+) -> None:
+    """The familiarity detector sees the same features whether or not the state was cached."""
+    ex = encode(encoder, sample_request())
+    batch = collate([ex], LIMITS.max_seq_len, pack=False)
+    with torch.no_grad():
+        _, full = model.forward_with_features(batch)
+        flat, index = model.encode_cached(model.encode_state(ex.request.state), batch)
+        cached = readout_features(flat, index, batch.option_mask)
     for t in full:
         torch.testing.assert_close(full[t], cached[t], atol=ATOL, rtol=0)

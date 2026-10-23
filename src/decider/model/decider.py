@@ -106,18 +106,20 @@ class DeciderModel(nn.Module):
             query_slice,
         )
 
-    def forward(self, batch: Batch) -> dict[str, torch.Tensor]:
+    def encode(self, batch: Batch) -> torch.Tensor:
+        """Final hidden states, flattened to ``(B*L, D)``; ``batch.index`` points into them."""
         masks = self.layer_masks(batch)
         hidden, _ = self.encoder(batch.input_ids, batch.position_ids, batch.level_ids, masks)
-        return self.heads(hidden.flatten(0, 1), batch.index, batch.option_mask)
+        return hidden.flatten(0, 1)
+
+    def forward(self, batch: Batch) -> dict[str, torch.Tensor]:
+        return self.heads(self.encode(batch), batch.index, batch.option_mask)
 
     def forward_with_features(
         self, batch: Batch
     ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         """Logits plus one feature vector per question (see :func:`readout_features`)."""
-        masks = self.layer_masks(batch)
-        hidden, _ = self.encoder(batch.input_ids, batch.position_ids, batch.level_ids, masks)
-        flat = hidden.flatten(0, 1)
+        flat = self.encode(batch)
         logits = self.heads(flat, batch.index, batch.option_mask)
         return logits, readout_features(flat, batch.index, batch.option_mask)
 
@@ -149,16 +151,17 @@ class DeciderModel(nn.Module):
         return StateCache(kv=kv, length=len(state_ids))
 
     @torch.no_grad()
-    def forward_and_cache(
+    def encode_and_cache(
         self, batch: Batch, state_length: int
-    ) -> tuple[dict[str, torch.Tensor], StateCache]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor], StateCache]:
         """One full pass over a single-request batch that also returns the state's cache.
 
         The state's keys/values are the same inside a full pass as in ``encode_state`` (the
-        state never attends to questions), so a cache miss costs one pass, not two.
+        state never attends to questions), so a cache miss costs one pass, not two. Returns
+        the flattened hidden states, the readout index into them and the cache.
         """
         if batch.input_ids.shape[0] != 1:
-            raise ValueError("forward_and_cache expects exactly one request per batch")
+            raise ValueError("encode_and_cache expects exactly one request per batch")
         hidden, kv = self.encoder(
             batch.input_ids,
             batch.position_ids,
@@ -167,18 +170,20 @@ class DeciderModel(nn.Module):
             return_kv=True,
         )
         state_kv = [(k[:, :, :state_length].clone(), v[:, :, :state_length].clone()) for k, v in kv]
-        logits = self.heads(hidden.flatten(0, 1), batch.index, batch.option_mask)
-        return logits, StateCache(kv=state_kv, length=state_length)
+        return hidden.flatten(0, 1), batch.index, StateCache(kv=state_kv, length=state_length)
 
     @torch.no_grad()
-    def forward_cached(self, cache: StateCache, batch: Batch) -> dict[str, torch.Tensor]:
-        """Answer the questions of a single-request batch against a cached state.
+    def encode_cached(
+        self, cache: StateCache, batch: Batch
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        """Hidden states of the question tokens of a single-request batch, run against a
+        cached state, and the readout index shifted to match.
 
         ``batch`` is the usual unpacked layout (state tokens first); only the question tokens
         are run through the encoder.
         """
         if batch.input_ids.shape[0] != 1:
-            raise ValueError("forward_cached expects exactly one request per batch")
+            raise ValueError("encode_cached expects exactly one request per batch")
         s = cache.length
         tail = slice(s, None)
         hidden, _ = self.encoder(
@@ -189,7 +194,20 @@ class DeciderModel(nn.Module):
             prefix=cache.kv,
         )
         index = {t: (idx - s).clamp(min=0) for t, idx in batch.index.items()}
-        return self.heads(hidden.flatten(0, 1), index, batch.option_mask)
+        return hidden.flatten(0, 1), index
+
+    @torch.no_grad()
+    def forward_and_cache(
+        self, batch: Batch, state_length: int
+    ) -> tuple[dict[str, torch.Tensor], StateCache]:
+        flat, index, cache = self.encode_and_cache(batch, state_length)
+        return self.heads(flat, index, batch.option_mask), cache
+
+    @torch.no_grad()
+    def forward_cached(self, cache: StateCache, batch: Batch) -> dict[str, torch.Tensor]:
+        """Answer the questions of a single-request batch against a cached state."""
+        flat, index = self.encode_cached(cache, batch)
+        return self.heads(flat, index, batch.option_mask)
 
     # ------------------------------------------------------------------ utilities
 

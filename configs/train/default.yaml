@@ -20,6 +20,7 @@ eval_batch_tokens: 32768
 checkpoint_every: 500
 keep_checkpoints: 2
 early_stopping_patience: null
+stop_at_step: null
 log_every: 10
 update_ratio_every: 100
 seed: 0

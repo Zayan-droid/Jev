@@ -118,6 +118,20 @@ def test_resume_after_interruption_is_exact(
         torch.testing.assert_close(value, b["model"][key], rtol=0, atol=0)
 
 
+def test_stop_at_step_keeps_the_schedule(tmp_path: Path, data_dir: Path) -> None:
+    full = tmp_path / "full"
+    Trainer(run_config(full, data_dir, steps=6)).fit()
+    cfg = run_config(tmp_path / "stopped", data_dir, steps=6)
+    cfg.train.stop_at_step = 3
+    Trainer(cfg).fit()
+    a = torch.load(full / "checkpoints" / "step_00000003.pt", weights_only=False)
+    b = torch.load(tmp_path / "stopped" / "checkpoints" / "last.pt", weights_only=False)
+    assert a["step"] == b["step"] == 3
+    for key, value in a["model"].items():
+        torch.testing.assert_close(value, b["model"][key], rtol=0, atol=0)
+    assert b["scheduler"] == a["scheduler"], "the LR schedule follows max_steps, not the stop"
+
+
 def test_api_serves_the_bundle(trained: Path, tmp_path: Path) -> None:
     cfg = EngineConfig(
         bundle=str(trained / "bundle"),

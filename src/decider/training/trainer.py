@@ -73,6 +73,9 @@ class TrainConfig:
     checkpoint_every: int = 500
     keep_checkpoints: int = 2
     early_stopping_patience: int | None = None
+    # End the run at this step while keeping the LR schedule of max_steps: a budget
+    # ablation then matches the first steps of the full run exactly.
+    stop_at_step: int | None = None
     log_every: int = 10
     update_ratio_every: int = 100
     seed: int = 0
@@ -265,7 +268,8 @@ class Trainer:
         status = "FAILED"
         training_done = False
         try:
-            while step < tc.max_steps:
+            end = min(tc.max_steps, tc.stop_at_step or tc.max_steps)
+            while step < end:
                 model.train()
                 optimizer.zero_grad(set_to_none=True)
                 step_parts: dict[str, float] = {}
@@ -307,7 +311,7 @@ class Trainer:
                     log.warning("loss spike at step %d: %.4f", step, step_parts["loss"])
                 averager.add({**step_parts, "grad_norm": float(grad_norm)})
 
-                if step % tc.log_every == 0 or step == tc.max_steps:
+                if step % tc.log_every == 0 or step == end:
                     avg = averager.pop()
                     efficiency = avg.pop("packing_efficiency", 0.0)
                     metrics: dict[str, float] = {f"train/{k}": v for k, v in avg.items()}
@@ -328,7 +332,7 @@ class Trainer:
                 elif ratio_metrics:
                     telemetry.log_metrics(ratio_metrics, step)
 
-                if step % tc.eval_every == 0 or step == tc.max_steps:
+                if step % tc.eval_every == 0 or step == end:
                     val_loss = self._validate(model, val_examples, telemetry, step)
                     if val_loss < best - 1e-4:
                         best, bad_evals = val_loss, 0

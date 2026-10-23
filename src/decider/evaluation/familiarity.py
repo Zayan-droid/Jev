@@ -6,10 +6,15 @@ reveal that. Familiarity is measured on the representation the answer is read fr
 is fitted per question type to the readout features of the calibration split, and a question's
 score is its Mahalanobis distance to that Gaussian. Questions beyond the distance that covers
 ``quantile`` of the calibration questions are *unfamiliar*.
+
+The threshold is set on calibration records held out from the fit. In 768 dimensions, distances
+of the points a Gaussian was fitted on are biased low, and a threshold taken from them flags
+far more than ``1 - quantile`` of new in-distribution questions.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,18 +30,23 @@ from decider.packing import TYPES, Example, collate
 
 @dataclass
 class QuestionFeatures:
-    """Per question: identity, readout feature, logits and target, aligned row by row."""
+    """Per question: identity, readout feature, confidence and correctness, row by row."""
 
     record_ids: list[str] = field(default_factory=list)
     questions: list[str] = field(default_factory=list)
     types: list[str] = field(default_factory=list)
     families: list[str] = field(default_factory=list)
     features: list[np.ndarray] = field(default_factory=list)
+    confidence: list[float] = field(default_factory=list)  # calibrated top-label probability
     correct: list[bool] = field(default_factory=list)
 
     def of_type(self, question_type: str) -> np.ndarray:
         rows = [f for f, t in zip(self.features, self.types, strict=True) if t == question_type]
         return np.stack(rows) if rows else np.zeros((0, 0))
+
+    def column(self, name: str, question_type: str) -> np.ndarray:
+        values = getattr(self, name)
+        return np.array([v for v, t in zip(values, self.types, strict=True) if t == question_type])
 
 
 @torch.inference_mode()
@@ -67,14 +77,17 @@ def collect_features(
                 target = np.asarray(example.targets[readout.question])
                 if t == "noul":
                     correct = (p[row] >= 0.5) == (target[0] >= 0.5)
+                    confidence = max(float(p[row]), 1.0 - float(p[row]))
                 else:
                     k = len(readout.option_names)
                     correct = target[int(p[row, :k].argmax())] >= target.max() - 1e-9
+                    confidence = float(p[row, :k].max())
                 out.record_ids.append(str(example.meta.get("id", "")))
                 out.questions.append(readout.question)
                 out.types.append(t)
                 out.families.append(str(example.meta.get("family", "unknown")))
                 out.features.append(feats[row])
+                out.confidence.append(confidence)
                 out.correct.append(bool(correct))
     return out
 
@@ -89,23 +102,35 @@ class Familiarity:
 
     @classmethod
     def fit(
-        cls, features: QuestionFeatures, quantile: float = 0.95, shrinkage: float = 0.1
+        cls,
+        features: QuestionFeatures,
+        quantile: float = 0.95,
+        shrinkage: float = 0.1,
+        threshold_share: float = 0.3,
     ) -> Familiarity:
+        """Fit on ``1 - threshold_share`` of the records, set thresholds on the rest.
+
+        Records, not questions, are split: questions about the same state are correlated.
+        """
+        held = np.array([_bucket(r) < threshold_share for r in features.record_ids])
+        types = np.array(features.types)
         mean: dict[str, np.ndarray] = {}
         precision: dict[str, np.ndarray] = {}
         threshold: dict[str, float] = {}
         for t in TYPES:
             x = features.of_type(t).astype(np.float64)
-            if len(x) < 2:
+            h = held[types == t]
+            fit, rest = (x[~h], x[h]) if h.any() and (~h).sum() >= 2 else (x, x)
+            if len(fit) < 2:
                 continue
-            mu = x.mean(0)
-            cov = np.cov(x - mu, rowvar=False)
+            mu = fit.mean(0)
+            cov = np.cov(fit - mu, rowvar=False)
             # Shrink towards a scaled identity: the feature dimension (768) is not small next to
             # the number of calibration questions, and the raw covariance is ill-conditioned.
             target = np.trace(cov) / cov.shape[0] * np.eye(cov.shape[0])
             prec = np.linalg.inv((1 - shrinkage) * cov + shrinkage * target)
             mean[t], precision[t] = mu, prec
-            threshold[t] = float(np.quantile(_mahalanobis(x, mu, prec), quantile))
+            threshold[t] = float(np.quantile(_mahalanobis(rest, mu, prec), quantile))
         return cls(mean, precision, threshold)
 
     def score(self, question_type: str, x: np.ndarray) -> np.ndarray:
@@ -136,6 +161,17 @@ class Familiarity:
             {t: data[f"{t}.precision"] for t in types},
             {t: float(data[f"{t}.threshold"]) for t in types},
         )
+
+
+def _bucket(record_id: str) -> float:
+    """A stable pseudo-random number in [0, 1) per record.
+
+    Salted: dataset splits are assigned by the unsalted hash of the record id
+    (``decider.data.build``), so every public-source calib record already has an unsalted hash
+    in one narrow range. Reusing it would split calib by source instead of at random.
+    """
+    digest = hashlib.sha256(b"familiarity-threshold:" + record_id.encode()).digest()
+    return int.from_bytes(digest[:8], "big") / 2**64
 
 
 def _mahalanobis(x: np.ndarray, mean: np.ndarray, precision: np.ndarray) -> np.ndarray:

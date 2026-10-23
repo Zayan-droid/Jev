@@ -32,6 +32,7 @@ from decider.data.dataset import EncodedSplit, MixtureSampler, TrainBatches
 from decider.data.io import load_manifest
 from decider.evaluation import plots
 from decider.evaluation.collect import collect_results
+from decider.evaluation.familiarity import Familiarity, collect_features
 from decider.evaluation.metrics import grouped, score_results, summarize_scored
 from decider.evaluation.report import EvalConfig, evaluate, sample_examples
 from decider.inference import Predictor
@@ -498,6 +499,7 @@ class Trainer:
         save_bundle(bundle_dir, model, self.tokenizer, self.cfg.packing, metadata)
         reference = self._reference_confidence(report)
         (bundle_dir / "reference.json").write_text(json.dumps(reference, indent=2))
+        self._fit_familiarity(model, bundle_dir)
         telemetry.log_artifact(bundle_dir, "bundle")
         log.info("bundle written to %s", bundle_dir)
 
@@ -512,6 +514,17 @@ class Trainer:
             )
             telemetry.set_tags({"registry.version": version, "gate.passed": passed})
         return {"report": report, "bundle": str(bundle_dir), "run_id": telemetry.run_id}
+
+    def _fit_familiarity(self, model: DeciderModel, bundle_dir: Path) -> None:
+        """Fit the question-familiarity detector on ``calib``, like the temperatures."""
+        encoder = RequestEncoder(self.tokenizer, self.cfg.packing)
+        calib = EncodedSplit.load(self.data_dir, "calib", encoder)
+        if not len(calib):
+            log.warning("no calib split: the bundle gets no familiarity detector")
+            return
+        examples = sample_examples(calib, 6000, self.cfg.train.seed)
+        features = collect_features(model, examples, self.cfg.packing.max_seq_len, self.device)
+        Familiarity.fit(features).save(bundle_dir / "familiarity.npz")
 
     @staticmethod
     def _reference_confidence(report: dict[str, Any]) -> dict[str, Any]:

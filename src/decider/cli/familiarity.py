@@ -3,9 +3,16 @@
     decider-familiarity --bundle runs/<name>/<ts>/bundle --data data/processed/mix-v1 --save
 
 Fits the detector on the calibration split, then reports for each evaluation split how many
-questions are flagged unfamiliar, how accurate familiar and unfamiliar questions are, and how
-well the score separates in-distribution (test) from held-out questions (AUROC). ``--save``
-stores the detector in the bundle (``familiarity.npz``), where the server picks it up.
+questions are flagged unfamiliar and how accurate familiar and unfamiliar questions are. Two
+AUROCs answer the two questions one could ask of the detector:
+
+* test vs heldout: does the score separate in-distribution from held-out questions (shift)?
+* wrong vs right, per split: does it rank wrong answers above right ones (errors), compared
+  with the obvious baseline, low confidence?
+
+``--save`` stores the detector in the bundle (``familiarity.npz``), where the server picks it
+up, and adds it to the bundle logged in the bundle's MLflow run, so registry versions get it.
+Training fits and saves the detector itself; this command is for older bundles and studies.
 """
 
 from __future__ import annotations
@@ -13,6 +20,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +51,24 @@ def render(report: dict[str, Any]) -> list[str]:
     if "auroc_test_vs_heldout" in report:
         values = ", ".join(f"{k} {v:.3f}" for k, v in report["auroc_test_vs_heldout"].items())
         lines += ["", f"AUROC, test (in distribution) vs heldout: {values}"]
+    lines += [
+        "",
+        "AUROC for ranking wrong answers above right ones:",
+        "",
+        "| split | type | errors | familiarity score | low confidence |",
+        "|---|---|---|---|---|",
+    ]
+    for split, entry in report["errors"].items():
+        for qtype, m in entry.items():
+            lines.append(
+                f"| {split} | {qtype} | {m['errors']} | {_auc(m['familiarity'])} | "
+                f"{_auc(m['confidence'])} |"
+            )
     return lines
+
+
+def _auc(value: float) -> str:
+    return "-" if math.isnan(value) else f"{value:.3f}"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -57,6 +83,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--device", default="auto")
     p.add_argument("--out", type=Path, help="default: <bundle>/../familiarity-<data name>")
     p.add_argument("--save", action="store_true", help="write familiarity.npz into the bundle")
+    p.add_argument(
+        "--tracking-uri",
+        default=os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlflow/mlflow.db"),
+        help="MLflow store holding the bundle's run (used with --save)",
+    )
     args = p.parse_args(argv)
 
     import numpy as np
@@ -79,17 +110,24 @@ def main(argv: list[str] | None = None) -> None:
         return collect_features(bundle.model, examples, bundle.limits.max_seq_len, device)
 
     detector = Familiarity.fit(features(args.fit_split), quantile=args.quantile)
-    report: dict[str, Any] = {"fit_split": args.fit_split, "quantile": args.quantile, "splits": {}}
+    report: dict[str, Any] = {
+        "fit_split": args.fit_split,
+        "quantile": args.quantile,
+        "splits": {},
+        "errors": {},
+    }
     scores: dict[str, dict[str, np.ndarray]] = {}
     for split in args.splits:
         f = features(split)
         entry: dict[str, Any] = {}
+        errors: dict[str, Any] = {}
         scores[split] = {}
         for t in TYPES:
             x = f.of_type(t)
             if not len(x):
                 continue
-            correct = np.array([c for c, ty in zip(f.correct, f.types, strict=True) if ty == t])
+            correct = f.column("correct", t).astype(bool)
+            confidence = f.column("confidence", t)
             s = detector.score(t, x)
             flagged = s > detector.threshold[t]
             scores[split][t] = s
@@ -99,7 +137,13 @@ def main(argv: list[str] | None = None) -> None:
                 "accuracy_familiar": float(correct[~flagged].mean()) if (~flagged).any() else None,
                 "accuracy_unfamiliar": float(correct[flagged].mean()) if flagged.any() else None,
             }
+            errors[t] = {
+                "errors": int((~correct).sum()),
+                "familiarity": auroc(s[correct], s[~correct]),
+                "confidence": auroc(-confidence[correct], -confidence[~correct]),
+            }
         report["splits"][split] = entry
+        report["errors"][split] = errors
     if "test" in scores and "heldout" in scores:
         report["auroc_test_vs_heldout"] = {
             t: auroc(scores["test"][t], scores["heldout"][t])
@@ -116,8 +160,15 @@ def main(argv: list[str] | None = None) -> None:
     (out / "report.json").write_text(json.dumps(report, indent=2))
     (out / "report.md").write_text(markdown + "\n")
     if args.save:
-        detector.save(args.bundle / "familiarity.npz")
-        log.info("saved %s", args.bundle / "familiarity.npz")
+        path = args.bundle / "familiarity.npz"
+        detector.save(path)
+        log.info("saved %s", path)
+        run_id = bundle.metadata.get("mlflow_run_id")
+        if run_id:
+            from mlflow import MlflowClient
+
+            MlflowClient(args.tracking_uri).log_artifact(run_id, str(path), "bundle")
+            log.info("added to the bundle of MLflow run %s", run_id)
 
 
 if __name__ == "__main__":

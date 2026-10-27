@@ -42,8 +42,10 @@ Response from the trained model (rounded; none of these questions are in the tra
 ```
 
 The interface (yes/no, choice and score questions answered as distributions) follows the
-"System 1" decision-model pattern popularised by TypeSafe's Jev. This is an independent
-implementation; nothing here is derived from Jev's code or weights.
+"System 1" decision-model pattern popularised by TypeSafe's
+[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev). This is an independent
+implementation; nothing here is derived from Jev's code or weights
+([Inspiration and references](#inspiration-and-references)).
 
 ## Why a discriminative model
 
@@ -325,6 +327,40 @@ uv run pre-commit install
 * Several training sources are licensed for non-commercial research only ([docs/DATA.md](docs/DATA.md)).
 * No hand-labelled gold set ships with the repository; the evaluation harness picks it up from
   `data/gold/gold.jsonl` once it exists.
+
+## Inspiration and references
+
+**Inspiration.** TypeSafe's Jev ([launch post](https://typesafe.ai/blog/introducing-system-one-models-and-jev),
+[docs](https://docs.typesafe.ai)) introduced "System One" models: typed noul, choice and score
+questions answered with calibrated probabilities instead of generated text. `decider` takes that
+interface as its starting point. It is not affiliated with TypeSafe and uses none of its code or
+weights, and the method differs: TypeSafe describes its own architecture and training procedure
+for Jev, while `decider` is a packed encoder with segment masks, trained with proper scoring rules
+and temperature-scaled.
+
+**Learning the Transformer.** Umar Jamil,
+[Coding a Transformer from scratch on PyTorch](https://www.youtube.com/watch?v=ISNdQcPhsts)
+([code](https://github.com/hkproj/pytorch-transformer)).
+
+**Papers**, and where each idea is used here:
+
+| Reference | Used in |
+|---|---|
+| Vaswani et al., 2017. [Attention Is All You Need](https://arxiv.org/abs/1706.03762) | the encoder: attention, residuals, feed-forward blocks |
+| Devlin et al., 2018. [BERT](https://arxiv.org/abs/1810.04805) | encoder-only pretraining and fine-tuning |
+| Warner et al., 2024. [ModernBERT](https://arxiv.org/abs/2412.13663) | the backbone, re-implemented in `decider.model` |
+| Su et al., 2021. [RoFormer: rotary position embedding](https://arxiv.org/abs/2104.09864) | RoPE at tree position ids |
+| Shazeer, 2020. [GLU Variants Improve Transformer](https://arxiv.org/abs/2002.05202) | GeGLU / SwiGLU feed-forward |
+| Xiong et al., 2020. [On Layer Normalization in the Transformer Architecture](https://arxiv.org/abs/2002.04745) | pre-norm layers |
+| Zhang and Sennrich, 2019. [Root Mean Square Layer Normalization](https://arxiv.org/abs/1910.07467) | RMSNorm in the from-scratch configs |
+| Dao et al., 2022. [FlashAttention](https://arxiv.org/abs/2205.14135) | fused attention via `scaled_dot_product_attention` |
+| Loshchilov and Hutter, 2017. [Decoupled Weight Decay Regularization](https://arxiv.org/abs/1711.05101) | AdamW |
+| Gneiting and Raftery, 2007. [Strictly Proper Scoring Rules, Prediction, and Estimation](https://doi.org/10.1198/016214506000001437) | the loss: log score, Brier, RPS |
+| Guo et al., 2017. [On Calibration of Modern Neural Networks](https://arxiv.org/abs/1706.04599) | temperature scaling, ECE, reliability diagrams |
+| Lee et al., 2018. [A Simple Unified Framework for Detecting Out-of-Distribution Samples](https://arxiv.org/abs/1807.03888) | the Mahalanobis familiarity detector |
+| Kahneman, 2011. *Thinking, Fast and Slow* | the System 1 / System 2 framing |
+
+Datasets are credited, with their licenses, in [docs/DATA.md](docs/DATA.md).
 
 ## License
 
